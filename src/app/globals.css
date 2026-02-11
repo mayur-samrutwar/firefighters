@@ -25,3 +25,11 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* Compact tooltip for globe object hover */
+.float-tooltip-kap {
+  font-size: 10px !important;
+  padding: 4px 6px !important;
+  max-width: 140px !important;
+  line-height: 1.2 !important;
+}

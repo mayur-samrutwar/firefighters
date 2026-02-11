@@ -1,6 +1,6 @@
 const LEGEND_ITEMS = [
   { color: '#f97316', label: 'Fire' },
-  { color: '#171717', label: 'Satellite agent (normal)' },
+  { color: '#3b82f6', label: 'Satellite agent (hover for info)' },
   { color: '#0ea5e9', label: 'Water source' },
   { color: '#22c55e', label: 'Drone — fetching water' },
   { color: '#a855f7', label: 'Drone — other purpose' },

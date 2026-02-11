@@ -4,7 +4,8 @@ import { useRef, useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import type { GlobeMethods } from 'react-globe.gl';
-
+import type { Agent } from '@/app/game/store';
+import { getAgentPosition } from '@/utils/agentPosition';
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const COUNTRIES_GEOJSON = '/countries.geojson';
@@ -12,22 +13,39 @@ const COUNTRIES_GEOJSON = '/countries.geojson';
 type Fire = { id: string; lat: number; lng: number };
 const FIRE_MARKER: Fire[] = [];
 
+type GlobeObject =
+  | { type: 'fire'; id: string; lat: number; lng: number }
+  | { type: 'agent'; lat: number; lng: number; agent: Agent };
+
 export default function GlobeViewer() {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
   const [fires, setFires] = useState<Fire[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const fetchState = () =>
       fetch('/api/state', { cache: 'no-store' })
         .then((res) => res.json())
-        .then((data) => setFires(data.fires || []))
-        .catch(() => setFires([]));
+        .then((data) => {
+          setFires(data.fires || []);
+          setAgents(data.agents || []);
+        })
+        .catch(() => {
+          setFires([]);
+          setAgents([]);
+        });
     fetchState();
     const interval = setInterval(fetchState, 2000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 80);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -83,6 +101,65 @@ export default function GlobeViewer() {
     []
   );
 
+  const globeObjects: GlobeObject[] = useMemo(() => {
+    const fireObjs: GlobeObject[] = (fires || []).map((f) => ({
+      type: 'fire' as const,
+      id: f.id,
+      lat: f.lat,
+      lng: f.lng,
+    }));
+    const agentObjs: GlobeObject[] = agents.map((a) => {
+      const pos = getAgentPosition(a);
+      return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
+    });
+    return [...fireObjs, ...agentObjs];
+  }, [fires, agents, tick]);
+
+  // Stable refs for agent ring data so the rings layer reuses (not remove+recreate)
+  const agentRingDataRef = useRef<Map<string, GlobeObject>>(new Map());
+  const agentRingData = useMemo(() => {
+    const map = agentRingDataRef.current;
+    agents.forEach((a) => {
+      const pos = getAgentPosition(a);
+      const existing = map.get(a.id);
+      if (existing && existing.type === 'agent') {
+        existing.lat = pos.lat;
+        existing.lng = pos.lng;
+        existing.agent = a;
+      } else {
+        map.set(a.id, {
+          type: 'agent' as const,
+          lat: pos.lat,
+          lng: pos.lng,
+          agent: a,
+        });
+      }
+    });
+    // Remove stale agents
+    for (const id of map.keys()) {
+      if (!agents.some((a) => a.id === id)) map.delete(id);
+    }
+    return Array.from(map.values());
+  }, [agents, tick]);
+
+  const fireObjects = globeObjects.filter((o) => o.type === 'fire');
+
+  const createAgentObject = (searchRadius: number) => {
+    const group = new THREE.Group();
+    const boxGeom = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+    const boxMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
+    group.add(new THREE.Mesh(boxGeom, boxMat));
+    return group;
+  };
+
+  const fireMesh = useMemo(() => {
+    const geometry = new THREE.SphereGeometry(0.7, 12, 12);
+    const material = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+    return new THREE.Mesh(geometry, material);
+  }, []);
+
+  const ringsDataItems = [...fireObjects, ...agentRingData];
+
   return (
     <div className="absolute inset-0">
       <Globe
@@ -105,23 +182,42 @@ export default function GlobeViewer() {
         animateIn={false}
         waitForGlobeReady={true}
         onGlobeReady={onReady}
-        objectsData={Array.isArray(fires) ? fires : FIRE_MARKER}
-        objectLat={(d) => (d as Fire).lat}
-        objectLng={(d) => (d as Fire).lng}
-        objectAltitude={0.01}
-        objectThreeObject={() => {
-          const geometry = new THREE.SphereGeometry(0.7, 12, 12);
-          const material = new THREE.MeshBasicMaterial({ color: 0xf97316 });
-          return new THREE.Mesh(geometry, material);
+        objectsData={globeObjects}
+        objectLat={(d) => (d as GlobeObject).lat}
+        objectLng={(d) => (d as GlobeObject).lng}
+        objectAltitude={0.015}
+        objectThreeObject={(d) => {
+          const obj = d as GlobeObject;
+          if (obj.type === 'agent') return createAgentObject(obj.agent.searchRadius);
+          return fireMesh.clone();
         }}
-        ringsData={Array.isArray(fires) ? fires : FIRE_MARKER}
-        ringLat={(d) => (d as Fire).lat}
-        ringLng={(d) => (d as Fire).lng}
-        ringColor="#f97316"
-        ringAltitude={0.002}
-        ringMaxRadius={0.6}
-        ringPropagationSpeed={2}
-        ringRepeatPeriod={1500}
+        objectLabel={(d) => {
+          const obj = d as GlobeObject;
+          if (obj.type === 'agent') {
+            const a = obj.agent;
+            return `Satellite · ${a.batteryPercentage}% · ${a.searchRadius}° radius`;
+          }
+          return '';
+        }}
+        ringsData={ringsDataItems}
+        ringLat={(d: object) => (d as GlobeObject).lat}
+        ringLng={(d: object) => (d as GlobeObject).lng}
+        ringAltitude={(d: object) =>
+          (d as GlobeObject).type === 'agent' ? 0.015 : 0.002
+        }
+        ringColor={(d: object) =>
+          (d as GlobeObject).type === 'agent' ? '#3b82f6' : '#f97316'
+        }
+        ringMaxRadius={(d: object) => {
+          const o = d as GlobeObject;
+          return o.type === 'agent' ? o.agent.searchRadius : 0.6;
+        }}
+        ringPropagationSpeed={(d: object) =>
+          (d as GlobeObject).type === 'agent' ? 0 : 2
+        }
+        ringRepeatPeriod={(d: object) =>
+          (d as GlobeObject).type === 'agent' ? Infinity : 1500
+        }
       />
     </div>
   );
