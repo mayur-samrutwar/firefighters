@@ -39,7 +39,16 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) (or :3001 if 3000 is in use).
+
+**To see fires**, run the agent in a separate terminal:
+
+```bash
+npm run agent              # if app is on port 3000
+npm run agent:3001         # if app is on port 3001
+```
+
+The agent POSTs to `/api/tick` every 30s. **Use the same port in your browser as the agent.** Check `http://localhost:3001/api/debug` to verify the server has fires.
 
 ## Deploy
 

@@ -21,12 +21,12 @@ export default function GlobeViewer() {
 
   useEffect(() => {
     const fetchState = () =>
-      fetch('/api/state')
+      fetch('/api/state', { cache: 'no-store' })
         .then((res) => res.json())
         .then((data) => setFires(data.fires || []))
         .catch(() => setFires([]));
     fetchState();
-    const interval = setInterval(fetchState, 5000);
+    const interval = setInterval(fetchState, 2000);
     return () => clearInterval(interval);
   }, []);
 
