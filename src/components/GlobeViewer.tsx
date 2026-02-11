@@ -9,14 +9,25 @@ const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const COUNTRIES_GEOJSON = '/countries.geojson';
 
-// Mumbai: 19.0760° N, 72.8777° E
-const MUMBAI = { lat: 19.076, lng: 72.8777 };
-const FIRE_MARKER = [MUMBAI];
+type Fire = { id: string; lat: number; lng: number };
+const FIRE_MARKER: Fire[] = [];
 
 export default function GlobeViewer() {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
+  const [fires, setFires] = useState<Fire[]>([]);
+
+  useEffect(() => {
+    const fetchState = () =>
+      fetch('/api/state')
+        .then((res) => res.json())
+        .then((data) => setFires(data.fires || []))
+        .catch(() => setFires([]));
+    fetchState();
+    const interval = setInterval(fetchState, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     fetch(COUNTRIES_GEOJSON)
@@ -33,13 +44,25 @@ export default function GlobeViewer() {
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  const enableAutoRotate = () => {
+  const onReady = () => {
     const globe = globeRef.current;
     if (!globe) return;
     try {
       const controls = globe.controls();
       controls.autoRotate = true;
       controls.autoRotateSpeed = 0.15;
+      const scene = globe.scene();
+      scene.fog = null;
+      scene.traverse((obj: { __globeObjType?: string; visible?: boolean }) => {
+        if (obj.__globeObjType === 'atmosphere') obj.visible = false;
+      });
+      // Ensure hex polygon dots are consistently lit (MeshLambert needs light)
+      const hasLights = scene.children.some(
+        (c) => c.type === 'AmbientLight' || c.type === 'DirectionalLight'
+      );
+      if (!hasLights) {
+        scene.add(new THREE.AmbientLight(0xffffff, 2));
+      }
     } catch {
       // Controls not ready yet
     }
@@ -59,7 +82,7 @@ export default function GlobeViewer() {
         globeMaterial={globeMaterial}
         hexPolygonsData={countries}
         hexPolygonGeoJsonGeometry="geometry"
-        hexPolygonColor={() => '#ebebeb'}
+        hexPolygonColor={() => '#a3a3a3'}
         hexPolygonAltitude={0.002}
         hexPolygonResolution={4}
         hexPolygonMargin={0.4}
@@ -67,22 +90,23 @@ export default function GlobeViewer() {
         hexPolygonCurvatureResolution={6}
         backgroundColor="rgba(255,255,255,0)"
         showAtmosphere={false}
+        atmosphereAltitude={0}
         showGraticules={false}
-        animateIn
+        animateIn={false}
         waitForGlobeReady={false}
-        onGlobeReady={enableAutoRotate}
-        objectsData={FIRE_MARKER}
-        objectLat={(d) => (d as { lat: number }).lat}
-        objectLng={(d) => (d as { lng: number }).lng}
+        onGlobeReady={onReady}
+        objectsData={Array.isArray(fires) ? fires : FIRE_MARKER}
+        objectLat={(d) => (d as Fire).lat}
+        objectLng={(d) => (d as Fire).lng}
         objectAltitude={0.01}
         objectThreeObject={() => {
           const geometry = new THREE.SphereGeometry(0.7, 12, 12);
           const material = new THREE.MeshBasicMaterial({ color: 0xf97316 });
           return new THREE.Mesh(geometry, material);
         }}
-        ringsData={FIRE_MARKER}
-        ringLat={(d) => (d as { lat: number }).lat}
-        ringLng={(d) => (d as { lng: number }).lng}
+        ringsData={Array.isArray(fires) ? fires : FIRE_MARKER}
+        ringLat={(d) => (d as Fire).lat}
+        ringLng={(d) => (d as Fire).lng}
         ringColor="#f97316"
         ringAltitude={0.002}
         ringMaxRadius={0.6}

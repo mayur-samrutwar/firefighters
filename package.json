@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "agent": "node scripts/agent-tick.mjs",
+    "agent:once": "RUN_ONCE=1 node scripts/agent-tick.mjs",
+    "agent:3001": "node scripts/agent-tick.mjs http://localhost:3001"
   },
   "dependencies": {
     "next": "16.1.6",
