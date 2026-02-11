@@ -1,0 +1,28 @@
+---
+description: Git commit workflow and message style
+alwaysApply: true
+---
+
+# Git Commit Preferences
+
+## Workflow
+- **Never commit automatically** – Ask the user if they want to save changes to git before committing.
+- Alternatively, the user will explicitly ask to commit when ready.
+
+## Commit Message Style
+Use semantic prefixes. Examples:
+
+```
+fix: auto-rotation issue
+fix: next build errors
+fix: bug regarding multiple fights at once
+feat: add user authentication
+add: dark mode toggle
+update: dependencies to latest
+```
+
+### Prefixes
+- **fix:** – Bug fixes
+- **feat:** – New features
+- **add:** – Adding something new
+- **update:** – Updating/changing existing code
