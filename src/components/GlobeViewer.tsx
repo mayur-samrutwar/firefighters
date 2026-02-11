@@ -8,6 +8,14 @@ import type { Agent } from '@/app/game/store';
 import { getAgentPosition } from '@/utils/agentPosition';
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
+const GLOBE_RADIUS = 100;
+const OBJECT_ALTITUDE = 0.015;
+
+function searchRadiusToGlobeUnits(deg: number): number {
+  const r = GLOBE_RADIUS * (1 + OBJECT_ALTITUDE);
+  return r * Math.sin((deg * Math.PI) / 180);
+}
+
 const COUNTRIES_GEOJSON = '/countries.geojson';
 
 type Fire = { id: string; lat: number; lng: number };
@@ -146,9 +154,25 @@ export default function GlobeViewer() {
 
   const createAgentObject = (searchRadius: number) => {
     const group = new THREE.Group();
+
+    // Visible satellite cube
     const boxGeom = new THREE.BoxGeometry(0.35, 0.35, 0.35);
     const boxMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
     group.add(new THREE.Mesh(boxGeom, boxMat));
+
+    // Invisible hit-area disc for whole ring (tangent plane: rotation.x = -π/2)
+    const hitRadius = searchRadiusToGlobeUnits(searchRadius);
+    const hitGeom = new THREE.CircleGeometry(hitRadius, 32);
+    const hitMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const hitDisc = new THREE.Mesh(hitGeom, hitMat);
+    hitDisc.rotation.x = -Math.PI / 2;
+    group.add(hitDisc);
+
     return group;
   };
 
