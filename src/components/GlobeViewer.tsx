@@ -17,6 +17,7 @@ export default function GlobeViewer() {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
   const [fires, setFires] = useState<Fire[]>([]);
+  const [globeReady, setGlobeReady] = useState(false);
 
   useEffect(() => {
     const fetchState = () =>
@@ -44,29 +45,38 @@ export default function GlobeViewer() {
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  const onReady = () => {
+  const onReady = () => setGlobeReady(true);
+
+  useEffect(() => {
+    if (!globeReady || !globeRef.current) return;
     const globe = globeRef.current;
-    if (!globe) return;
-    try {
-      const controls = globe.controls();
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.15;
-      const scene = globe.scene();
-      scene.fog = null;
-      scene.traverse((obj: { __globeObjType?: string; visible?: boolean }) => {
-        if (obj.__globeObjType === 'atmosphere') obj.visible = false;
-      });
-      // Ensure hex polygon dots are consistently lit (MeshLambert needs light)
-      const hasLights = scene.children.some(
-        (c) => c.type === 'AmbientLight' || c.type === 'DirectionalLight'
-      );
-      if (!hasLights) {
-        scene.add(new THREE.AmbientLight(0xffffff, 2));
+    const id = requestAnimationFrame(() => {
+      try {
+        // Closer zoom: default altitude is 2.5, lower = more zoomed in
+        globe.pointOfView({ altitude: 1.5 }, 0);
+
+        const controls = globe.controls();
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.15;
+
+        const scene = globe.scene();
+        scene.fog = null;
+        scene.traverse((obj: { __globeObjType?: string; visible?: boolean }) => {
+          if (obj.__globeObjType === 'atmosphere') obj.visible = false;
+        });
+        // Ensure hex polygon dots are consistently lit (MeshLambert needs light)
+        const hasLights = scene.children.some(
+          (c) => c.type === 'AmbientLight' || c.type === 'DirectionalLight'
+        );
+        if (!hasLights) {
+          scene.add(new THREE.AmbientLight(0xffffff, 2));
+        }
+      } catch {
+        // Controls not ready yet
       }
-    } catch {
-      // Controls not ready yet
-    }
-  };
+    });
+    return () => cancelAnimationFrame(id);
+  }, [globeReady]);
 
   const globeMaterial = useMemo(
     () => new THREE.MeshBasicMaterial({ color: 0xffffff }),
@@ -93,7 +103,7 @@ export default function GlobeViewer() {
         atmosphereAltitude={0}
         showGraticules={false}
         animateIn={false}
-        waitForGlobeReady={false}
+        waitForGlobeReady={true}
         onGlobeReady={onReady}
         objectsData={Array.isArray(fires) ? fires : FIRE_MARKER}
         objectLat={(d) => (d as Fire).lat}

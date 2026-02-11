@@ -14,19 +14,38 @@
 const BASE_URL =
   process.argv[2] || process.env.API_URL || 'http://localhost:3000';
 
+let landPoints = null;
+async function loadLandPoints() {
+  if (landPoints) return landPoints;
+  try {
+    const res = await fetch(`${BASE_URL}/land-points.json`);
+    landPoints = await res.json();
+    return landPoints;
+  } catch (e) {
+    console.warn('Could not load land-points.json, using random coords');
+    return null;
+  }
+}
+
 function randomLat() {
   return -90 + Math.random() * 180;
 }
-
 function randomLng() {
   return -180 + Math.random() * 360;
 }
 
 async function tick() {
-  const addFire = Math.random() > 0.3; // ~70% chance to add fire each tick
-  const body = addFire
-    ? { lat: randomLat(), lng: randomLng(), addFire: true }
-    : { addFire: false };
+  const points = await loadLandPoints();
+  let lat, lng;
+  if (points?.length) {
+    const p = points[Math.floor(Math.random() * points.length)];
+    lat = p[0];
+    lng = p[1];
+  } else {
+    lat = randomLat();
+    lng = randomLng();
+  }
+  const body = { lat, lng, addFire: true };
 
   try {
     const res = await fetch(`${BASE_URL}/api/tick`, {
@@ -38,7 +57,7 @@ async function tick() {
     console.log(
       new Date().toISOString(),
       res.ok ? 'OK' : 'FAIL',
-      addFire ? `fire at ${body.lat.toFixed(2)}, ${body.lng.toFixed(2)}` : 'no fire'
+      `fire at ${lat.toFixed(2)}, ${lng.toFixed(2)}`
     );
     if (!res.ok) console.error(data);
   } catch (err) {
