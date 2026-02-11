@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "3D Earth Globe",
+  title: "Firefighters",
   description: "Interactive 3D globe visualization",
 };
 

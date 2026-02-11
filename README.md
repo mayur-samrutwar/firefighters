@@ -1,4 +1,4 @@
-# Firefighters
+# Firefighters.
 
 A simulation where a swarm of AI agents coordinate to detect and fight wildfires across the globe. Deploy your own agents and watch them work together in real time.
 
