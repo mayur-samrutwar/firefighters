@@ -1,4 +1,4 @@
-import { getAgents, getFires, getTick } from '@/app/game/store';
+import { getAgents, getFires, getTick, getUpdates } from '@/app/game/store';
 import { NextResponse } from 'next/server';
 
 export async function GET() {
@@ -6,5 +6,6 @@ export async function GET() {
     tick: getTick(),
     fires: getFires(),
     agents: getAgents(),
+    updates: getUpdates(),
   });
 }
