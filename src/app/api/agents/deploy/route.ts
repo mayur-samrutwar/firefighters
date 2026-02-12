@@ -1,4 +1,4 @@
-import { deployAgent, type AgentType } from '@/app/game/store';
+import { deployAgent, playerExists, type AgentType } from '@/app/game/store';
 import { NextResponse } from 'next/server';
 
 const VALID_TYPES: AgentType[] = [
@@ -13,7 +13,7 @@ const VALID_TYPES: AgentType[] = [
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { type, route, batteryPercentage, searchRadius, lat, lng, waterLevel } =
+    const { type, route, batteryPercentage, searchRadius, lat, lng, waterLevel, playerId } =
       body;
 
     if (!VALID_TYPES.includes(type)) {
@@ -59,6 +59,16 @@ export async function POST(request: Request) {
       }
     }
 
+    // Optional player ownership — validate if provided
+    if (playerId !== undefined && typeof playerId === 'string' && playerId.length > 0) {
+      if (!playerExists(playerId)) {
+        return NextResponse.json(
+          { ok: false, error: 'Player not found. Register first via POST /api/players' },
+          { status: 400 }
+        );
+      }
+    }
+
     const battery =
       typeof batteryPercentage === 'number'
         ? Math.max(0, Math.min(100, batteryPercentage))
@@ -75,6 +85,7 @@ export async function POST(request: Request) {
       lng: typeof lng === 'number' ? lng : undefined,
       batteryPercentage: battery,
       waterLevel: typeof waterLevel === 'number' ? waterLevel : undefined,
+      playerId: typeof playerId === 'string' ? playerId : undefined,
     });
 
     return NextResponse.json({ ok: true, agent });

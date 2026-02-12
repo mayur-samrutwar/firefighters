@@ -2,6 +2,7 @@ import {
   getAgents,
   getBulletinPosts,
   getFires,
+  getLeaderboard,
   getTick,
   getUpdates,
   getWaterSources,
@@ -16,5 +17,6 @@ export async function GET() {
     updates: getUpdates(),
     waterSources: getWaterSources(),
     bulletin: getBulletinPosts(),
+    leaderboard: getLeaderboard(),
   });
 }

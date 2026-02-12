@@ -17,7 +17,9 @@ import {
   _resetBulletin,
   type BulletinPost,
 } from './bulletin';
+import { _resetPlayers } from './players';
 import { buildPerception } from './perception';
+import { scoreDetection, scoreExtinguished, scoreRechargeAssist, scoreWatering } from './scoring';
 import { WATER_SOURCES, type WaterSource } from './waterSources';
 
 /* ─── Types ─────────────────────────────────────────────── */
@@ -49,6 +51,7 @@ export type Agent = {
   type: AgentType;
   batteryPercentage: number;
   deployedAt: number; // timestamp ms
+  playerId?: string; // owner player ID
 
   // Satellite — orbital movement
   route?: AgentRoute;
@@ -82,6 +85,7 @@ export type UpdateEvent = {
 
 export { type WaterSource, WATER_SOURCES };
 export { type BulletinPost, getBulletinPosts };
+export { type Player, getPlayers, getLeaderboard, registerPlayer, playerExists } from './players';
 
 /* ─── Agent type configs ────────────────────────────────── */
 
@@ -249,6 +253,8 @@ export function deployAgent(params: {
   // Overrides
   batteryPercentage?: number;
   waterLevel?: number;
+  // Player ownership
+  playerId?: string;
 }) {
   const cfg = AGENT_CONFIGS[params.type];
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -258,6 +264,7 @@ export function deployAgent(params: {
     type: params.type,
     batteryPercentage: params.batteryPercentage ?? 100,
     deployedAt: Date.now(),
+    playerId: params.playerId,
   };
 
   if (params.type === 'satellite') {
@@ -376,6 +383,7 @@ function runExtinguish() {
       lat: nearestFire.lat,
       lng: nearestFire.lng,
     });
+    scoreWatering(agent.playerId);
 
     // Check if extinguished
     if (nearestFire.intensity <= 0) {
@@ -386,6 +394,7 @@ function runExtinguish() {
         lat: nearestFire.lat,
         lng: nearestFire.lng,
       });
+      scoreExtinguished(agent.playerId);
     }
   }
 }
@@ -445,6 +454,7 @@ function runRecharge() {
     agent.chargeLevel -= transfer;
     target.batteryPercentage = Math.min(100, target.batteryPercentage + transfer);
     agent.currentAction = 'recharging';
+    scoreRechargeAssist(agent.playerId);
   }
 }
 
@@ -511,6 +521,7 @@ function runDetection() {
           lat: fire.lat,
           lng: fire.lng,
         });
+        scoreDetection(agent.playerId);
       }
     }
   }
@@ -692,4 +703,5 @@ export function _resetState() {
   updates.length = 0;
   detectedPairs.clear();
   _resetBulletin();
+  _resetPlayers();
 }

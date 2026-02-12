@@ -2,6 +2,7 @@ import BulletinPanel from '@/components/BulletinPanel';
 import DeploySection from '@/components/DeploySection';
 import GlobeLegend from '@/components/GlobeLegend';
 import GlobeViewer from '@/components/GlobeViewer';
+import LeaderboardPanel from '@/components/LeaderboardPanel';
 import NewsPanel from '@/components/NewsPanel';
 
 export default function Home() {
@@ -10,6 +11,7 @@ export default function Home() {
       <GlobeViewer />
       <GlobeLegend />
       <BulletinPanel />
+      <LeaderboardPanel />
       <NewsPanel />
       <DeploySection />
     </div>
