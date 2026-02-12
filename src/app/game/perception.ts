@@ -8,8 +8,8 @@
 import { angularDistanceDeg } from '@/utils/geo';
 import type { BulletinPost } from './bulletin';
 import { getBulletinPosts, getAssignmentsForAgent } from './bulletin';
-import type { Agent, AgentType, Fire } from './store';
-import { getFires, getAgents, getAgentPos, getTick } from './store';
+import type { Agent, AgentType, Fire, WorldEvent } from './store';
+import { getFires, getAgents, getAgentPos, getTick, getActiveWorldEvents } from './store';
 
 /* ─── Types ─────────────────────────────────────────────── */
 
@@ -45,6 +45,7 @@ export type PerceptionPacket = {
   nearbyAgents: NearbyAgentInfo[];
   bulletin: BulletinPost[];
   assignedTasks: BulletinPost[];
+  activeWorldEvents: WorldEvent[];
 };
 
 /* ─── Awareness ranges per agent type (degrees) ─────────── */
@@ -125,5 +126,6 @@ export function buildPerception(agent: Agent): PerceptionPacket {
     nearbyAgents,
     bulletin: allBulletins,
     assignedTasks: assignments,
+    activeWorldEvents: getActiveWorldEvents(),
   };
 }

@@ -21,6 +21,18 @@ import { _resetPlayers } from './players';
 import { buildPerception } from './perception';
 import { scoreDetection, scoreExtinguished, scoreRechargeAssist, scoreWatering } from './scoring';
 import { WATER_SOURCES, type WaterSource } from './waterSources';
+import {
+  maybeSpawnEvent,
+  getActiveEvents,
+  getAllEvents as getAllWorldEvents,
+  consumeLightningStorms,
+  consumeEquipmentMalfunctions,
+  isDroughtZone,
+  getWindVector,
+  isSolarFlareActive,
+  _resetWorldEvents,
+  type WorldEvent,
+} from './worldEvents';
 
 /* ─── Types ─────────────────────────────────────────────── */
 
@@ -76,16 +88,23 @@ export type Agent = {
 export type UpdateEvent = {
   id: string;
   tick: number;
-  type: 'detected' | 'watering' | 'extinguished';
+  type: 'detected' | 'watering' | 'extinguished' | 'world_event';
   agentId?: string;
   fireId?: string;
   lat: number;
   lng: number;
+  worldEventType?: string;
+  message?: string;
 };
 
 export { type WaterSource, WATER_SOURCES };
 export { type BulletinPost, getBulletinPosts };
 export { type Player, getPlayers, getLeaderboard, registerPlayer, playerExists } from './players';
+export { type WorldEvent, getActiveEvents, forceSpawnEvent } from './worldEvents';
+
+export function getActiveWorldEvents(): WorldEvent[] {
+  return getActiveEvents(state.tick);
+}
 
 /* ─── Agent type configs ────────────────────────────────── */
 
@@ -172,6 +191,7 @@ type GameState = {
   agents: Agent[];
   updates: UpdateEvent[];
   detectedPairs: Set<string>;
+  worldEventEmitted: Set<string>;
 };
 
 const g = globalThis as unknown as { __fireGameState?: GameState };
@@ -182,7 +202,12 @@ if (!g.__fireGameState) {
     agents: [],
     updates: [],
     detectedPairs: new Set<string>(),
+    worldEventEmitted: new Set<string>(),
   };
+}
+// Migration: add worldEventEmitted if missing from existing state
+if (!g.__fireGameState.worldEventEmitted) {
+  g.__fireGameState.worldEventEmitted = new Set<string>();
 }
 
 const state = g.__fireGameState;
@@ -490,11 +515,15 @@ function runDetection() {
   const activeFires = getFires();
   if (activeFires.length === 0) return;
 
+  const solarFlare = isSolarFlareActive(state.tick);
+
   const detectors = agents.filter(
     (a) =>
       a.batteryPercentage > 0 &&
       (a.type === 'satellite' || a.type === 'scout') &&
-      (a.searchRadius ?? 0) > 0
+      (a.searchRadius ?? 0) > 0 &&
+      // Solar flare blinds satellites but NOT scouts
+      !(solarFlare && a.type === 'satellite')
   );
 
   for (const agent of detectors) {
@@ -599,8 +628,13 @@ function growFires() {
   for (const fire of fires) {
     if (fire.intensity >= MAX_INTENSITY || fire.intensity <= 0) continue;
     const age = state.tick - fire.bornTick;
-    const interval =
+
+    // Drought zones: fires grow at 2x rate (halve the interval)
+    const inDrought = isDroughtZone(state.tick, fire.lat, fire.lng);
+    const baseInterval =
       fire.fireType === 'flash' ? FLASH_GROW_INTERVAL : INTENSITY_GROW_INTERVAL;
+    const interval = inDrought ? Math.max(1, Math.floor(baseInterval / 2)) : baseInterval;
+
     const expectedIntensity = Math.min(
       MAX_INTENSITY,
       1 + Math.floor(age / interval)
@@ -616,6 +650,8 @@ function spreadFires() {
     (f) => f.intensity >= 3 && isFireAlive(f)
   );
 
+  const wind = getWindVector(state.tick);
+
   for (const fire of candidates) {
     if (fires.length >= MAX_FIRES) break;
 
@@ -626,10 +662,19 @@ function spreadFires() {
 
     if (Math.random() >= chance) continue;
 
-    const angle = Math.random() * 2 * Math.PI;
+    let angle = Math.random() * 2 * Math.PI;
     const dist = (0.5 + Math.random() * 0.5) * SPREAD_RADIUS_DEG;
-    const newLat = clampLat(fire.lat + dist * Math.sin(angle));
-    const newLng = wrapLng(fire.lng + dist * Math.cos(angle));
+
+    // Wind bias: blend the random angle toward wind bearing
+    if (wind) {
+      const windAngleRad = (wind.bearing * Math.PI) / 180;
+      // Weighted blend: higher windSpeed = stronger bias toward wind direction
+      const blendFactor = Math.min(0.8, (wind.speed - 1) / 3); // 0 to 0.8
+      angle = angle * (1 - blendFactor) + windAngleRad * blendFactor;
+    }
+
+    const newLat = clampLat(fire.lat + dist * Math.cos(angle));
+    const newLng = wrapLng(fire.lng + dist * Math.sin(angle));
 
     const tooClose = fires.some(
       (f) => angularDistanceDeg(f.lat, f.lng, newLat, newLng) < 0.5
@@ -645,6 +690,62 @@ function spreadFires() {
 
 /* clampLat, wrapLng — imported from @/utils/geo */
 
+/* ─── World Events ─────────────────────────────────────── */
+
+function applyWorldEvents() {
+  // Maybe spawn a new event (probabilistic)
+  maybeSpawnEvent(state.tick);
+
+  // Emit update for any active or recently-spawned events not yet announced
+  // Use getAllEvents + filter to catch duration-1 events spawned between ticks
+  const allEvents = getAllWorldEvents();
+  for (const evt of allEvents) {
+    // Event is relevant if it started at or since the previous tick
+    const isRelevant =
+      state.tick >= evt.startTick &&
+      state.tick <= evt.startTick + evt.duration;
+    if (isRelevant && !state.worldEventEmitted.has(evt.id)) {
+      state.worldEventEmitted.add(evt.id);
+      pushEvent({
+        type: 'world_event',
+        lat: evt.lat ?? 0,
+        lng: evt.lng ?? 0,
+        worldEventType: evt.type,
+        message: evt.message,
+      });
+    }
+  }
+
+  // Apply lightning storms → fire clusters
+  const storms = consumeLightningStorms(state.tick);
+  for (const storm of storms) {
+    if (storm.lat == null || storm.lng == null) continue;
+    const count = 4 + Math.floor(Math.random() * 5); // 4-8 fires
+    for (let i = 0; i < count; i++) {
+      const offsetLat = (Math.random() - 0.5) * (storm.radius ?? 5);
+      const offsetLng = (Math.random() - 0.5) * (storm.radius ?? 5);
+      addFire(
+        clampLat(storm.lat + offsetLat),
+        wrapLng(storm.lng + offsetLng)
+      );
+    }
+  }
+
+  // Apply equipment malfunctions
+  const malfunctions = consumeEquipmentMalfunctions(state.tick);
+  for (const mal of malfunctions) {
+    const alive = agents.filter((a) => a.batteryPercentage > 0);
+    if (alive.length === 0) continue;
+    const count = Math.min(alive.length, 1 + Math.floor(Math.random() * 2)); // 1-2 agents
+    const shuffled = [...alive].sort(() => Math.random() - 0.5);
+    const affected = shuffled.slice(0, count);
+    mal.affectedAgentIds = affected.map((a) => a.id);
+    for (const agent of affected) {
+      agent.batteryPercentage = Math.max(0, agent.batteryPercentage - 20);
+    }
+  }
+}
+
 /* ─── Tick ──────────────────────────────────────────────── */
 
 export function processTick(newFire?: { lat: number; lng: number }) {
@@ -655,10 +756,10 @@ export function processTick(newFire?: { lat: number; lng: number }) {
   fires.length = 0;
   fires.push(...kept);
 
-  // 2. Grow fires
+  // 2. Grow fires (drought zones accelerate growth)
   growFires();
 
-  // 3. Spread fires
+  // 3. Spread fires (wind biases direction)
   spreadFires();
 
   // 4. Add new fire if provided
@@ -666,31 +767,34 @@ export function processTick(newFire?: { lat: number; lng: number }) {
     addFire(newFire.lat, newFire.lng);
   }
 
-  // 5. Drain batteries and remove dead agents
+  // 5. World events — spawn and apply
+  applyWorldEvents();
+
+  // 6. Drain batteries and remove dead agents
   drainBatteries();
 
-  // 6. Prune expired bulletin posts
+  // 7. Prune expired bulletin posts
   pruneBulletin();
 
-  // 7. Detection sweep (satellites + scouts detect fires first)
+  // 8. Detection sweep (satellites + scouts; solar flare blinds satellites)
   runDetection();
 
-  // 8. Perception → AI decision → Action execution
+  // 9. Perception → AI decision → Action execution
   runPerceptionActionLoop();
 
-  // 9. Move agents toward targets
+  // 10. Move agents toward targets
   moveAgents();
 
-  // 10. Extinguish (water drones at fires)
+  // 11. Extinguish (water drones at fires)
   runExtinguish();
 
-  // 11. Refill (water drones at water sources)
+  // 12. Refill (water drones at water sources)
   runRefill();
 
-  // 12. Recharge (supply drones near low-battery agents)
+  // 13. Recharge (supply drones near low-battery agents)
   runRecharge();
 
-  // 13. Prune stale detection pairs
+  // 14. Prune stale detection pairs
   pruneDetectedPairs();
 }
 
@@ -702,6 +806,8 @@ export function _resetState() {
   agents.length = 0;
   updates.length = 0;
   detectedPairs.clear();
+  state.worldEventEmitted.clear();
   _resetBulletin();
   _resetPlayers();
+  _resetWorldEvents();
 }
