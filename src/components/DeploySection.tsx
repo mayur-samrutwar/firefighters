@@ -2,27 +2,30 @@
 
 import { useState } from 'react';
 import DeployAgentModal from './DeployAgentModal';
-import TestDeployModal from './TestDeployModal';
 
 export default function DeploySection({
   autoRotate,
   onToggleAutoRotate,
+  onOpenInfo,
 }: {
   autoRotate: boolean;
   onToggleAutoRotate: () => void;
+  onOpenInfo: () => void;
 }) {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
-  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
 
   return (
     <>
       <div className="pointer-events-auto absolute bottom-8 left-1/2 z-10 flex -translate-x-1/2 gap-2">
         <button
           type="button"
-          onClick={() => setIsTestModalOpen(true)}
-          className="rounded-xl border border-slate-200/80 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-lg shadow-slate-200/40 transition hover:bg-slate-50"
+          onClick={onOpenInfo}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-lg shadow-slate-200/40 transition hover:bg-slate-50"
         >
-          Test deploy
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white">
+            i
+          </span>
+          How to play
         </button>
         <button
           type="button"
@@ -52,11 +55,6 @@ export default function DeploySection({
           </span>
         </button>
       </div>
-      <TestDeployModal
-        isOpen={isTestModalOpen}
-        onClose={() => setIsTestModalOpen(false)}
-        onDeployed={() => {}}
-      />
       <DeployAgentModal
         isOpen={isDeployModalOpen}
         onClose={() => setIsDeployModalOpen(false)}

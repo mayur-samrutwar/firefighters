@@ -7,14 +7,18 @@ import GlobeViewer from '@/components/GlobeViewer';
 import NewsPanel from '@/components/NewsPanel';
 import WorldEventsPanel from '@/components/WorldEventsPanel';
 import ActiveAgentsPanel from '@/components/ActiveAgentsPanel';
+import EarthLifeRing from '@/components/EarthLifeRing';
+import InfoModal from '@/components/InfoModal';
 
 export default function Home() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-white">
       <GlobeViewer autoRotate={autoRotate} focusAgentId={focusAgentId} />
+      <EarthLifeRing />
       {/* Brand logo bottom-left */}
       <div className="pointer-events-none absolute bottom-8 left-8 z-10">
         <img
@@ -34,7 +38,9 @@ export default function Home() {
       <DeploySection
         autoRotate={autoRotate}
         onToggleAutoRotate={() => setAutoRotate((v) => !v)}
+        onOpenInfo={() => setShowInfo(true)}
       />
+      <InfoModal isOpen={showInfo} onClose={() => setShowInfo(false)} />
     </div>
   );
 }

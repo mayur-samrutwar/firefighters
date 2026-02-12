@@ -241,6 +241,15 @@ const CHEMICAL_WATER_MULTIPLIER = 2; // chemical fires need 2x water
 // Events
 const MAX_EVENTS = 50;
 
+// Earth life (global health)
+const EARTH_MAX_LIFE = 100;
+// Tuning: with a sustained total fire intensity around typical values,
+// this drains Earth life over several hours with 30s ticks.
+// (Lower = slower decay.) Tuned so that even with many active fires,
+// Earth survives for many hours unless everything burns unchecked.
+const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
+const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
+
 /* ─── State (on globalThis for dev-mode stability) ──────── */
 
 type GameState = {
@@ -250,6 +259,7 @@ type GameState = {
   updates: UpdateEvent[];
   detectedPairs: Set<string>;
   worldEventEmitted: Set<string>;
+  earthLife: number;
 };
 
 const g = globalThis as unknown as { __fireGameState?: GameState };
@@ -261,11 +271,15 @@ if (!g.__fireGameState) {
     updates: [],
     detectedPairs: new Set<string>(),
     worldEventEmitted: new Set<string>(),
+    earthLife: EARTH_MAX_LIFE,
   };
 }
 // Migration: add worldEventEmitted if missing from existing state
 if (!g.__fireGameState.worldEventEmitted) {
   g.__fireGameState.worldEventEmitted = new Set<string>();
+}
+if (typeof g.__fireGameState.earthLife !== 'number') {
+  g.__fireGameState.earthLife = EARTH_MAX_LIFE;
 }
 
 const state = g.__fireGameState;
@@ -310,6 +324,10 @@ export function getUpdates() {
 
 export function getWaterSources() {
   return [...WATER_SOURCES];
+}
+
+export function getEarthLife() {
+  return state.earthLife;
 }
 
 /* ─── Agent position helper ─────────────────────────────── */
@@ -459,7 +477,9 @@ function runExtinguish() {
         ? Math.floor(waterToUse / CHEMICAL_WATER_MULTIPLIER)
         : waterToUse;
 
-    nearestFire.intensity = Math.max(0, nearestFire.intensity - intensityReduction);
+    const newIntensity = Math.max(0, nearestFire.intensity - intensityReduction);
+    const extinguishedAmount = nearestFire.intensity - newIntensity;
+    nearestFire.intensity = newIntensity;
 
     // Emit watering event
     pushEvent({
@@ -481,6 +501,14 @@ function runExtinguish() {
         lng: nearestFire.lng,
       });
       scoreExtinguished(agent, state.tick);
+    }
+
+    // Restore a bit of Earth's life based on how much intensity we removed.
+    if (extinguishedAmount > 0) {
+      state.earthLife = Math.min(
+        EARTH_MAX_LIFE,
+        state.earthLife + extinguishedAmount * LIFE_GAIN_PER_INTENSITY_EXTINGUISHED
+      );
     }
   }
 }
@@ -751,6 +779,19 @@ function spreadFires() {
 
 /* clampLat, wrapLng — imported from @/utils/geo */
 
+/* ─── Earth life ─────────────────────────────────────────── */
+
+function updateEarthLife() {
+  const active = getFires();
+  if (active.length === 0) return;
+
+  const totalIntensity = active.reduce((sum, f) => sum + (f.intensity || 0), 0);
+  if (totalIntensity <= 0) return;
+
+  const loss = totalIntensity * LIFE_LOSS_PER_INTENSITY_PER_TICK;
+  state.earthLife = Math.max(0, state.earthLife - loss);
+}
+
 /* ─── World Events ─────────────────────────────────────── */
 
 function applyWorldEvents() {
@@ -857,6 +898,9 @@ export function processTick(newFire?: { lat: number; lng: number }) {
 
   // 14. Prune stale detection pairs
   pruneDetectedPairs();
+
+  // 15. Global Earth life decay (based on surviving fires)
+  updateEarthLife();
 }
 
 /* ─── Testing helpers ───────────────────────────────────── */
@@ -868,6 +912,7 @@ export function _resetState() {
   updates.length = 0;
   detectedPairs.clear();
   state.worldEventEmitted.clear();
+  state.earthLife = EARTH_MAX_LIFE;
   _resetBulletin();
   _resetPlayers();
   _resetWorldEvents();
