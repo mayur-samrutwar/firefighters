@@ -10,7 +10,8 @@
     "agent": "node scripts/agent-tick.mjs",
     "agent:once": "RUN_ONCE=1 node scripts/agent-tick.mjs",
     "agent:3001": "node scripts/agent-tick.mjs http://localhost:3001",
-    "test:supabase": "node scripts/test-supabase-tables.mjs"
+    "test:supabase": "node scripts/test-supabase-tables.mjs",
+    "test:public-agents": "node scripts/test-public-agents-register.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",
