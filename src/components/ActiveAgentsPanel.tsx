@@ -24,7 +24,11 @@ function shortId(id: string) {
   return parts[parts.length - 1]?.slice(0, 5) ?? id.slice(-5);
 }
 
-export default function ActiveAgentsPanel() {
+export default function ActiveAgentsPanel({
+  onFocusAgent,
+}: {
+  onFocusAgent?: (agentId: string) => void;
+}) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [scores, setScores] = useState<AgentLeaderboardEntry[]>([]);
 
@@ -88,7 +92,8 @@ export default function ActiveAgentsPanel() {
               {sorted.map((a) => (
                 <div
                   key={a.id}
-                  className="flex items-center justify-between gap-2 px-4 py-2.5"
+                  onClick={() => onFocusAgent?.(a.id)}
+                  className="flex cursor-pointer items-center justify-between gap-2 px-4 py-2.5 transition hover:bg-slate-50"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[11px] font-medium text-slate-700">

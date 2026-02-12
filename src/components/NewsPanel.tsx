@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 
 type Fire = { id: string; lat: number; lng: number; intensity: number; fireType?: string };
 
+type AgentSummary = { id: string; type: string };
+
 type UpdateEvent = {
   id: string;
   tick: number;
@@ -29,21 +31,36 @@ function shortId(id?: string) {
   return parts[parts.length - 1]?.slice(0, 5) ?? id.slice(-5);
 }
 
-function eventText(u: UpdateEvent): { agent: string | null; text: string } {
+function eventText(
+  u: UpdateEvent,
+  agentType?: string
+): { agent: string | null; text: string } {
+  const labelForAgent = (fallback: string) => {
+    if (!u.agentId) return null;
+    if (!agentType) return `${fallback} ${shortId(u.agentId)}`;
+    if (agentType === 'satellite') return `Satellite ${shortId(u.agentId)}`;
+    if (agentType === 'water_drone') return `Water drone ${shortId(u.agentId)}`;
+    if (agentType === 'heavy_tanker') return `Tanker ${shortId(u.agentId)}`;
+    if (agentType === 'scout') return `Scout ${shortId(u.agentId)}`;
+    if (agentType === 'supply_drone') return `Supply drone ${shortId(u.agentId)}`;
+    if (agentType === 'coordinator') return `Coordinator ${shortId(u.agentId)}`;
+    return `${fallback} ${shortId(u.agentId)}`;
+  };
+
   switch (u.type) {
     case 'detected':
       return {
-        agent: u.agentId ? `Agent ${shortId(u.agentId)}` : null,
+        agent: labelForAgent('Agent'),
         text: 'detected fire at',
       };
     case 'watering':
       return {
-        agent: u.agentId ? `Drone ${shortId(u.agentId)}` : null,
+        agent: labelForAgent('Drone'),
         text: 'watering fire at',
       };
     case 'extinguished':
       return {
-        agent: u.agentId ? `Drone ${shortId(u.agentId)}` : null,
+        agent: labelForAgent('Drone'),
         text: 'extinguished fire at',
       };
     case 'world_event':
@@ -64,6 +81,7 @@ function eventText(u: UpdateEvent): { agent: string | null; text: string } {
 export default function NewsPanel() {
   const [fires, setFires] = useState<Fire[]>([]);
   const [updates, setUpdates] = useState<UpdateEvent[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
 
   useEffect(() => {
     const fetchState = () =>
@@ -72,6 +90,12 @@ export default function NewsPanel() {
         .then((data) => {
           setFires(data.fires || []);
           setUpdates(data.updates || []);
+          setAgents(
+            (data.agents || []).map((a: any) => ({
+              id: a.id as string,
+              type: a.type as string,
+            }))
+          );
         })
         .catch(() => {
           setFires([]);
@@ -146,7 +170,8 @@ export default function NewsPanel() {
           ) : (
             <div className="space-y-3">
               {sortedUpdates.map((u) => {
-                const { agent, text } = eventText(u);
+                const matchedAgent = agents.find((a) => a.id === u.agentId);
+                const { agent, text } = eventText(u, matchedAgent?.type);
                 return (
                   <div
                     key={u.id}

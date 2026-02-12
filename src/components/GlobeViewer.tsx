@@ -6,10 +6,12 @@ import * as THREE from 'three';
 import type { GlobeMethods } from 'react-globe.gl';
 import type { Agent, AgentType } from '@/app/game/store';
 import { getAgentPosition } from '@/utils/agentPosition';
+import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const GLOBE_RADIUS = 100;
 const OBJECT_ALTITUDE = 0.015;
+const TICK_SECONDS = 30; // real-time seconds per simulation tick
 
 function searchRadiusToGlobeUnits(deg: number): number {
   const r = GLOBE_RADIUS * (1 + OBJECT_ALTITUDE);
@@ -33,6 +35,14 @@ type GlobeObject =
   | { type: 'agent'; lat: number; lng: number; agent: Agent }
   | { type: 'water'; id: string; lat: number; lng: number; name: string };
 
+type AgentPath = {
+  startLat: number;
+  startLng: number;
+  endLat: number;
+  endLng: number;
+  agentType: AgentType;
+};
+
 /* ─── Agent type visual configs ─────────────────────────── */
 
 const AGENT_COLORS: Record<AgentType, number> = {
@@ -53,7 +63,13 @@ const AGENT_LABELS: Record<AgentType, string> = {
   coordinator: 'Coordinator',
 };
 
-export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
+export default function GlobeViewer({
+  autoRotate,
+  focusAgentId,
+}: {
+  autoRotate: boolean;
+  focusAgentId?: string | null;
+}) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
@@ -62,6 +78,8 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
   const [waterSources, setWaterSources] = useState<WaterSource[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
   const [tick, setTick] = useState(0);
+  const [stateTimestamp, setStateTimestamp] = useState<number>(() => Date.now());
+  const serverTickRef = useRef<number | null>(null);
 
   useEffect(() => {
     const fetchState = () =>
@@ -71,6 +89,11 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
           setFires(data.fires || []);
           setAgents(data.agents || []);
           setWaterSources(data.waterSources || []);
+          const apiTick = typeof data.tick === 'number' ? data.tick : null;
+          if (apiTick != null && apiTick !== serverTickRef.current) {
+            serverTickRef.current = apiTick;
+            setStateTimestamp(Date.now());
+          }
         })
         .catch(() => {
           setFires([]);
@@ -132,10 +155,72 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
     return () => cancelAnimationFrame(id);
   }, [globeReady, autoRotate]);
 
+  // When a specific agent is selected from the Active Agents panel,
+  // smoothly fly the camera to that agent's position and zoom in a bit.
+  useEffect(() => {
+    if (!globeReady || !focusAgentId || !globeRef.current) return;
+    const globe = globeRef.current;
+
+    const agent = agents.find((a) => a.id === focusAgentId);
+    if (!agent) return;
+
+    const pos =
+      agent.type === 'satellite' && agent.route
+        ? getAgentPosition(agent)
+        : { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
+
+    try {
+      const controls = globe.controls();
+      controls.autoRotate = false;
+      globe.pointOfView(
+        { lat: pos.lat, lng: pos.lng, altitude: 0.7 },
+        1000
+      );
+    } catch {
+      /* ignore camera errors */
+    }
+  }, [focusAgentId, globeReady]);
+
   const globeMaterial = useMemo(
     () => new THREE.MeshBasicMaterial({ color: 0xffffff }),
     []
   );
+
+  // Compute smooth client-side positions for agents between ticks.
+  // Satellites use orbital interpolation; other agents move toward their target
+  // based on speed and real time elapsed since the last state snapshot.
+  function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
+    // Orbital satellites already use continuous interpolation
+    if (agent.type === 'satellite' && agent.route) {
+      return getAgentPosition(agent);
+    }
+
+    const baseLat = agent.lat ?? 0;
+    const baseLng = agent.lng ?? 0;
+
+    // No target or no speed → stay at last server position
+    if (!agent.target || agent.speed == null || agent.speed <= 0) {
+      return { lat: baseLat, lng: baseLng };
+    }
+
+    const target = agent.target;
+    const dist = angularDistanceDeg(baseLat, baseLng, target.lat, target.lng);
+    if (dist <= 0) {
+      return { lat: target.lat, lng: target.lng };
+    }
+
+    // Server moves agents at most `speed` degrees per tick toward the target.
+    // Here we smooth just THIS tick's movement so we never overshoot what
+    // the server will do.
+    const stepFrac = Math.min(1, agent.speed / dist); // fraction of leg this tick
+    const elapsedSeconds = Math.max(0, (Date.now() - stateTimestamp) / 1000);
+    const tickFrac = Math.min(1, elapsedSeconds / TICK_SECONDS);
+    const frac = stepFrac * tickFrac; // 0 → full one-tick step toward target
+
+    const lat = clampLat(baseLat + (target.lat - baseLat) * frac);
+    const lng = wrapLng(baseLng + (target.lng - baseLng) * frac);
+    return { lat, lng };
+  }
 
   // Satellite icon texture (billboard sprite)
   const satelliteTexture = useMemo(() => {
@@ -193,11 +278,7 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
     }));
 
     const agentObjs: GlobeObject[] = agents.map((a) => {
-      // Satellites use orbital interpolation, drones use stored lat/lng
-      const pos =
-        a.type === 'satellite' && a.route
-          ? getAgentPosition(a)
-          : { lat: a.lat ?? 0, lng: a.lng ?? 0 };
+      const pos = getRenderedAgentPosition(a);
       return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
     });
 
@@ -210,7 +291,7 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
     }));
 
     return [...fireObjs, ...agentObjs, ...waterObjs];
-  }, [fires, agents, waterSources, tick]);
+  }, [fires, agents, waterSources, tick, stateTimestamp]);
 
   /* ─── Agent ring data (stable refs) ───────────────────── */
 
@@ -220,10 +301,7 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
     agents.forEach((a) => {
       // Only show rings for satellite and scout (agents with searchRadius)
       if (!a.searchRadius) return;
-      const pos =
-        a.type === 'satellite' && a.route
-          ? getAgentPosition(a)
-          : { lat: a.lat ?? 0, lng: a.lng ?? 0 };
+      const pos = getRenderedAgentPosition(a);
       const existing = map.get(a.id);
       if (existing && existing.type === 'agent') {
         existing.lat = pos.lat;
@@ -242,9 +320,36 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
       if (!agents.some((a) => a.id === id)) map.delete(id);
     }
     return Array.from(map.values());
-  }, [agents, tick]);
+  }, [agents, tick, stateTimestamp]);
 
   const fireObjects = globeObjects.filter((o) => o.type === 'fire');
+
+  /* ─── Focused agent path (for inspect mode) ─────────────── */
+
+  const focusedAgent = useMemo(
+    () => agents.find((a) => a.id === focusAgentId) ?? null,
+    [agents, focusAgentId]
+  );
+
+  const focusedPath: AgentPath | null = useMemo(() => {
+    if (!focusedAgent) return null;
+    if (!focusedAgent.target) return null;
+
+    const from = getRenderedAgentPosition(focusedAgent);
+    const to = focusedAgent.target;
+
+    // Ignore degenerate paths
+    const dist = angularDistanceDeg(from.lat, from.lng, to.lat, to.lng);
+    if (!Number.isFinite(dist) || dist <= 0.01) return null;
+
+    return {
+      startLat: from.lat,
+      startLng: from.lng,
+      endLat: to.lat,
+      endLng: to.lng,
+      agentType: focusedAgent.type,
+    };
+  }, [focusedAgent, stateTimestamp, tick]);
 
   /* ─── Three.js object creators ────────────────────────── */
 
@@ -441,6 +546,18 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
           const intensity = o.type === 'fire' ? o.intensity : 1;
           return Math.max(600, 1500 - intensity * 200);
         }}
+        arcsData={focusedPath ? [focusedPath] : []}
+        arcStartLat={(d: object) => (d as AgentPath).startLat}
+        arcStartLng={(d: object) => (d as AgentPath).startLng}
+        arcEndLat={(d: object) => (d as AgentPath).endLat}
+        arcEndLng={(d: object) => (d as AgentPath).endLng}
+        arcColor={(d: object) => {
+          const a = d as AgentPath;
+          const base = AGENT_COLORS[a.agentType] ?? 0x3b82f6;
+          const hex = `#${base.toString(16).padStart(6, '0')}`;
+          return [hex, hex] as [string, string];
+        }}
+        arcStroke={0.8}
       />
     </div>
   );
