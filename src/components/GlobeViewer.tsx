@@ -148,6 +148,17 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
     return tex;
   }, []);
 
+  // Water drone icon texture (billboard sprite)
+  const waterDroneTexture = useMemo(() => {
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load('/watering-drone.png');
+    tex.anisotropy = 8;
+    // @ts-ignore - support both legacy and new colorSpace APIs
+    tex.colorSpace =
+      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    return tex;
+  }, []);
+
   /* ─── Build globe objects ─────────────────────────────── */
 
   const globeObjects: GlobeObject[] = useMemo(() => {
@@ -245,6 +256,17 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
         hitDisc.rotation.x = -Math.PI / 2;
         group.add(hitDisc);
       }
+    } else if (agent.type === 'water_drone') {
+      // Billboard sprite for water drones using watering-drone.png
+      const spriteMat = new THREE.SpriteMaterial({
+        map: waterDroneTexture,
+        transparent: true,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      // Slightly larger than satellites so water drones read clearly
+      sprite.scale.set(2.1, 2.1, 2.1);
+      group.add(sprite);
     } else if (agent.type === 'coordinator') {
       // Diamond for coordinator
       const geom = new THREE.OctahedronGeometry(0.4);
