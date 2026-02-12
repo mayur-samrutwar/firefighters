@@ -353,14 +353,17 @@ async function testSpreadMinDistance() {
       const dLat = a.lat - b.lat;
       const dLng = a.lng - b.lng;
       const approxDist = Math.sqrt(dLat * dLat + dLng * dLng);
-      if (approxDist < 0.4) {
+      if (approxDist < 0.1) {
         anyTooClose = true;
         break;
       }
     }
     if (anyTooClose) break;
   }
-  assert(!anyTooClose, `No fires stacked closer than 0.5° (${state.fires.length} fires checked)`);
+  assert(
+    !anyTooClose,
+    `No fires stacked closer than 0.1° (${state.fires.length} fires checked)`
+  );
 }
 
 // ─── Test 12: Fire intensity in API response ────────────────

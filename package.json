@@ -9,9 +9,11 @@
     "lint": "eslint",
     "agent": "node scripts/agent-tick.mjs",
     "agent:once": "RUN_ONCE=1 node scripts/agent-tick.mjs",
-    "agent:3001": "node scripts/agent-tick.mjs http://localhost:3001"
+    "agent:3001": "node scripts/agent-tick.mjs http://localhost:3001",
+    "test:supabase": "node scripts/test-supabase-tables.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.47.10",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -27,6 +29,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "dotenv": "^16.4.5"
   }
 }

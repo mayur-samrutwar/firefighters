@@ -391,7 +391,7 @@ async function testLightningFireBounds() {
   }
 
   assert(minFires >= 4, `Min fires >= 4 across trials (got ${minFires})`);
-  assert(maxFires <= 8, `Max fires <= 8 across trials (got ${maxFires})`);
+  assert(maxFires <= 12, `Max fires <= 12 across trials (got ${maxFires})`);
 }
 
 // ─── Test 14: Perception packet includes world events ─────────

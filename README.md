@@ -1,6 +1,6 @@
-# Firefighters.
+# Firefighters
 
-A simulation where a swarm of AI agents coordinate to detect and fight wildfires across the globe. Deploy your own agents and watch them work together in real time.
+A simulation where a swarm of AI agents coordinate to detect and fight wildfires across the globe. Deploy your own agents and watch them work together in real time on an interactive 3D globe.
 
 ## What We're Building
 
@@ -32,6 +32,24 @@ Agents operate under realistic limits that shape strategy and coordination:
 
 These constraints make coordination essential—no single agent can handle everything alone.
 
+## Tech Stack
+
+- **Framework** – Next.js 16 (App Router)
+- **Language** – TypeScript + React 19
+- **Rendering** – `three` + `react-globe.gl` for the 3D globe visualization
+- **Styling** – Tailwind CSS 4
+
+## Scripts
+
+All commands are run from the project root:
+
+- **Development server**: `npm run dev`
+- **Build for production**: `npm run build`
+- **Start production server**: `npm run start`
+- **Run continuous agent** (ticks every ~30s): `npm run agent`
+- **Run a single tick** (useful for testing): `npm run agent:once`
+- **Agent against port 3001**: `npm run agent:3001`
+
 ## Run Locally
 
 ```bash
@@ -39,7 +57,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) (or :3001 if 3000 is in use).
+Then open [http://localhost:3000](http://localhost:3000) (or `http://localhost:3001` if 3000 is in use).
 
 **To see fires**, run the agent in a separate terminal:
 
@@ -48,8 +66,16 @@ npm run agent              # if app is on port 3000
 npm run agent:3001         # if app is on port 3001
 ```
 
-The agent POSTs to `/api/tick` every 30s. **Use the same port in your browser as the agent.** Check `http://localhost:3001/api/debug` to verify the server has fires.
+The agent POSTs to `/api/tick` every ~30s. **Use the same port in your browser as the agent.** For debugging, open `/api/debug` on the same port (for example `http://localhost:3000/api/debug` or `http://localhost:3001/api/debug`) to verify that the server has active fires and agent state.
 
 ## Deploy
 
-Works with Vercel, Netlify, or any static/hosted Next.js environment. No special configuration needed.
+This is a standard Next.js app and can be deployed to Vercel, Netlify, or any Next.js-compatible host. Make sure your deployment keeps the Node server running so the `/api/tick` and `/api/debug` routes remain available.
+
+## Folder Overview
+
+- `src/app` – Next.js app routes, API routes, and main game entry
+- `src/components` – Reusable UI and visualization components (including the globe viewer and agent panels)
+- `public` – Static assets such as agent icons and globe data files
+
+Each part of the simulation is kept modular so you can extend it with new agent roles, mechanics, or visualizations without rewriting core systems.
