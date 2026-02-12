@@ -8,6 +8,16 @@
  */
 
 import { getAgentPositionAtElapsed } from '@/utils/agentPosition';
+import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
+import { executeAction } from './actions';
+import { decideActions } from './agentAI';
+import {
+  getBulletinPosts,
+  pruneBulletin,
+  _resetBulletin,
+  type BulletinPost,
+} from './bulletin';
+import { buildPerception } from './perception';
 import { WATER_SOURCES, type WaterSource } from './waterSources';
 
 /* ─── Types ─────────────────────────────────────────────── */
@@ -71,6 +81,7 @@ export type UpdateEvent = {
 };
 
 export { type WaterSource, WATER_SOURCES };
+export { type BulletinPost, getBulletinPosts };
 
 /* ─── Agent type configs ────────────────────────────────── */
 
@@ -281,27 +292,7 @@ export function deployAgent(params: {
   return agent;
 }
 
-/* ─── Haversine ─────────────────────────────────────────── */
-
-const DEG2RAD = Math.PI / 180;
-const RAD2DEG = 180 / Math.PI;
-
-function angularDistanceDeg(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
-): number {
-  const φ1 = lat1 * DEG2RAD;
-  const φ2 = lat2 * DEG2RAD;
-  const Δφ = (lat2 - lat1) * DEG2RAD;
-  const Δλ = (lng2 - lng1) * DEG2RAD;
-  const a =
-    Math.sin(Δφ / 2) ** 2 +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return c * RAD2DEG;
-}
+/* ─── Haversine — imported from @/utils/geo ─────────────── */
 
 /* ─── Movement ──────────────────────────────────────────── */
 
@@ -457,96 +448,29 @@ function runRecharge() {
   }
 }
 
-/* ─── Simple AI — per-type decision each tick ───────────── */
+/* ─── Perception → AI → Action loop ─────────────────────── */
 
-function runAgentAI() {
-  const activeFires = getFires();
-
+function runPerceptionActionLoop() {
   for (const agent of agents) {
     if (agent.batteryPercentage <= 0) continue;
 
-    // Satellites and coordinators have no AI-driven movement
-    if (agent.type === 'satellite' || agent.type === 'coordinator') continue;
-
-    // Reset action if arrived at target or no target
+    // Reset action label when agent has no target
     if (!agent.target) {
       agent.currentAction = null;
     }
 
-    // Only pick new target if we don't already have one
-    if (agent.target) continue;
+    // Build what this agent can see
+    const perception = buildPerception(agent);
 
-    const pos = getAgentPos(agent);
+    // AI decides actions
+    const actions = decideActions(perception);
 
-    switch (agent.type) {
-      case 'scout': {
-        // Move to nearest fire to "verify"
-        const nearest = findNearest(pos, activeFires);
-        if (nearest) {
-          agent.target = { lat: nearest.lat, lng: nearest.lng };
-          agent.currentAction = 'scouting';
-        }
-        break;
-      }
-
-      case 'water_drone':
-      case 'heavy_tanker': {
-        const hasWater = (agent.waterLevel ?? 0) > 0;
-        if (hasWater && activeFires.length > 0) {
-          // Go to nearest fire
-          const nearest = findNearest(pos, activeFires);
-          if (nearest) {
-            agent.target = { lat: nearest.lat, lng: nearest.lng };
-            agent.currentAction = 'en_route_fire';
-          }
-        } else if (!hasWater) {
-          // Go to nearest water source to refill
-          const nearest = findNearest(pos, WATER_SOURCES);
-          if (nearest) {
-            agent.target = { lat: nearest.lat, lng: nearest.lng };
-            agent.currentAction = 'en_route_water';
-          }
-        }
-        break;
-      }
-
-      case 'supply_drone': {
-        // Find agent with lowest battery that needs help
-        const lowBattery = agents
-          .filter(
-            (a) =>
-              a.id !== agent.id &&
-              a.batteryPercentage > 0 &&
-              a.batteryPercentage < 50
-          )
-          .sort((a, b) => a.batteryPercentage - b.batteryPercentage);
-
-        if (lowBattery.length > 0) {
-          const target = lowBattery[0];
-          const tPos = getAgentPos(target);
-          agent.target = { lat: tPos.lat, lng: tPos.lng };
-          agent.currentAction = 'en_route_recharge';
-        }
-        break;
-      }
+    // Execute each action
+    for (const act of actions) {
+      const label = executeAction(agent, act);
+      if (label) agent.currentAction = label;
     }
   }
-}
-
-function findNearest(
-  pos: { lat: number; lng: number },
-  items: { lat: number; lng: number }[]
-): { lat: number; lng: number } | null {
-  let best: { lat: number; lng: number } | null = null;
-  let bestDist = Infinity;
-  for (const item of items) {
-    const d = angularDistanceDeg(pos.lat, pos.lng, item.lat, item.lng);
-    if (d < bestDist) {
-      bestDist = d;
-      best = item;
-    }
-  }
-  return best;
 }
 
 /* ─── Detection sweep (satellites + scouts) ─────────────── */
@@ -708,15 +632,7 @@ function spreadFires() {
   }
 }
 
-function clampLat(lat: number): number {
-  return Math.max(-85, Math.min(85, lat));
-}
-
-function wrapLng(lng: number): number {
-  if (lng > 180) return lng - 360;
-  if (lng < -180) return lng + 360;
-  return lng;
-}
+/* clampLat, wrapLng — imported from @/utils/geo */
 
 /* ─── Tick ──────────────────────────────────────────────── */
 
@@ -742,25 +658,28 @@ export function processTick(newFire?: { lat: number; lng: number }) {
   // 5. Drain batteries and remove dead agents
   drainBatteries();
 
-  // 6. Agent AI — pick targets
-  runAgentAI();
+  // 6. Prune expired bulletin posts
+  pruneBulletin();
 
-  // 7. Move agents toward targets
-  moveAgents();
-
-  // 8. Extinguish (water drones at fires)
-  runExtinguish();
-
-  // 9. Refill (water drones at water sources)
-  runRefill();
-
-  // 10. Recharge (supply drones near low-battery agents)
-  runRecharge();
-
-  // 11. Detection sweep (satellites + scouts)
+  // 7. Detection sweep (satellites + scouts detect fires first)
   runDetection();
 
-  // 12. Prune stale detection pairs
+  // 8. Perception → AI decision → Action execution
+  runPerceptionActionLoop();
+
+  // 9. Move agents toward targets
+  moveAgents();
+
+  // 10. Extinguish (water drones at fires)
+  runExtinguish();
+
+  // 11. Refill (water drones at water sources)
+  runRefill();
+
+  // 12. Recharge (supply drones near low-battery agents)
+  runRecharge();
+
+  // 13. Prune stale detection pairs
   pruneDetectedPairs();
 }
 
@@ -772,4 +691,5 @@ export function _resetState() {
   agents.length = 0;
   updates.length = 0;
   detectedPairs.clear();
+  _resetBulletin();
 }

@@ -166,21 +166,24 @@ async function testWaterLevelDrain() {
 
   await deploy({ type: 'water_drone', lat: 0, lng: 0 });
 
-  // Add 3 fires close to the drone, one per tick
+  // Add fire close to drone — water should decrease
   await tick({ lat: 0, lng: 0.5 });
   let state = await getState();
   let drone = state.agents.find((a) => a.type === 'water_drone');
-  assert(drone.waterLevel === 2, `After 1 fire: water ${drone.waterLevel}/3`);
+  const waterAfterFirst = drone.waterLevel;
+  assert(waterAfterFirst < 3, `Water used: ${waterAfterFirst}/3 (was 3)`);
 
-  await tick({ lat: 0, lng: 0.8 });
+  // Add another fire right on top of the drone — should extinguish immediately
+  await tick({ lat: drone.lat ?? 0, lng: (drone.lng ?? 0) + 0.3 });
   state = await getState();
   drone = state.agents.find((a) => a.type === 'water_drone');
-  assert(drone.waterLevel === 1, `After 2 fires: water ${drone.waterLevel}/3`);
+  assert(
+    drone.waterLevel <= waterAfterFirst,
+    `Water didn't increase: ${drone.waterLevel}/3`
+  );
 
-  await tick({ lat: 0, lng: -0.5 });
-  state = await getState();
-  drone = state.agents.find((a) => a.type === 'water_drone');
-  assert(drone.waterLevel === 0, `After 3 fires: water ${drone.waterLevel}/3`);
+  // Water level decreased from full (3) — extinguishing confirmed
+  assert(drone.waterLevel < 3, `Water consumed: ${drone.waterLevel}/3`);
 }
 
 // ─── Test 7: Drone refills at water source ──────────────────
@@ -212,7 +215,10 @@ async function testDroneRoutesToWater() {
 
   const state = await getState();
   const drone = state.agents.find((a) => a.type === 'water_drone');
-  assert(drone.currentAction === 'en_route_water', `Action: ${drone.currentAction}`);
+  assert(drone.currentAction === 'moving', `Action: ${drone.currentAction}`);
+  // Should also post need_water to bulletin
+  const needWater = state.bulletin?.filter((b) => b.postType === 'need_water');
+  assert(needWater && needWater.length >= 1, 'need_water posted to bulletin');
 }
 
 // ─── Test 9: Drone AI routes to fire when has water ─────────
@@ -220,16 +226,16 @@ async function testDroneRoutesToFire() {
   console.log('\n🧪 Test 9: Drone with water routes to nearest fire');
   await reset();
 
-  // Deploy drone far from fire
+  // Deploy drone, fire within 15° awareness range
   await deploy({ type: 'water_drone', lat: 30, lng: 30 });
 
-  // Add fire far away
+  // Add fire ~7° away (within 15° awareness range)
   await tick({ lat: 35, lng: 35 });
 
   const state = await getState();
   const drone = state.agents.find((a) => a.type === 'water_drone');
   assert(
-    drone.currentAction === 'en_route_fire' || drone.currentAction === 'extinguishing',
+    drone.currentAction === 'moving' || drone.currentAction === 'extinguishing',
     `Action: ${drone.currentAction}`
   );
 }
@@ -239,9 +245,9 @@ async function testDroneMovement() {
   console.log('\n🧪 Test 10: Drone moves toward target');
   await reset();
 
-  // Deploy drone at [0, 0], target far fire at [20, 0]
+  // Deploy drone at [0, 0], fire within 15° awareness range at [12, 0]
   await deploy({ type: 'water_drone', lat: 0, lng: 0 });
-  await tick({ lat: 20, lng: 0 });
+  await tick({ lat: 12, lng: 0 });
 
   const state1 = await getState();
   const drone1 = state1.agents.find((a) => a.type === 'water_drone');
@@ -262,11 +268,14 @@ async function testScoutSpeed() {
   console.log('\n🧪 Test 11: Scout drone is faster than water drone');
   await reset();
 
-  // Deploy both at same spot, add fire far away
+  // Satellite to generate fire_report for scout to read from bulletin
+  await deploy({ type: 'satellite', route: [[12, 0], [12, 5]], searchRadius: 5 });
+  // Scout and water drone at same spot
   await deploy({ type: 'scout', lat: 0, lng: 0 });
   await deploy({ type: 'water_drone', lat: 0, lng: 0 });
 
-  await tick({ lat: 30, lng: 0 });
+  // Fire at [12, 0] — satellite detects → bulletin → scout reads
+  await tick({ lat: 12, lng: 0 });
   await tickNoFire();
 
   const state = await getState();

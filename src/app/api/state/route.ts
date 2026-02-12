@@ -1,5 +1,6 @@
 import {
   getAgents,
+  getBulletinPosts,
   getFires,
   getTick,
   getUpdates,
@@ -14,5 +15,6 @@ export async function GET() {
     agents: getAgents(),
     updates: getUpdates(),
     waterSources: getWaterSources(),
+    bulletin: getBulletinPosts(),
   });
 }
