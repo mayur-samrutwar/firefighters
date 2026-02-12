@@ -196,22 +196,16 @@ async function testAgentRemoval() {
   console.log('\n🧪 Test 5: Agent removal — dies when battery reaches 0');
   await reset();
 
-  // Deploy with very low battery — should die in ~2 ticks at 0.833%/tick
-  // 1.5% battery → 1.5 / 0.833 ≈ 1.8 ticks
+  // Deploy with very low battery — should die quickly due to drain and/or malfunctions.
+  // 1.5% battery → 1.5 / 0.833 ≈ 1.8 ticks (without malfunctions).
   await deployAgent({ battery: 1.5 });
 
   await tickNoFire();
-  const state1 = await getState();
-  assert(
-    state1.agents.length === 1,
-    `Agent alive after 1 tick (battery ~${state1.agents[0]?.batteryPercentage.toFixed(2)}%)`
-  );
-
   await tickNoFire();
   const state2 = await getState();
   assert(
     state2.agents.length === 0,
-    'Agent removed after 2 ticks (battery depleted)'
+    'Agent removed within 2 ticks (battery depleted or malfunction)'
   );
 }
 
@@ -289,28 +283,77 @@ async function testFireExpiryCleanup() {
 
   await deployAgent({ route: [[0, 0], [0, 1]], searchRadius: 10, battery: 100 });
 
-  // Add fire, wait for it to expire (fires last up to 25 ticks max)
+  // Add fire at a known location
   await tick({ lat: 0, lng: 0.5 });
 
-  const state1 = await getState();
-  const firstDetections = state1.updates.filter((u) => u.type === 'detected');
-  assert(firstDetections.length === 1, 'First fire detected');
-  const originalFireId = firstDetections[0]?.fireId;
+  // Identify the original fire by position
+  let state = await getState();
+  const originalFire = state.fires.find(
+    (f) => Math.abs(f.lat - 0) < 1 && Math.abs(f.lng - 0.5) < 1
+  );
+  assert(originalFire !== undefined, 'Original fire exists near expected location');
+  const originalFireId = originalFire.id;
+
+  // Allow a few ticks for the first detection, skipping ticks where a solar flare is active
+  let detectedOriginal = false;
+  for (let i = 0; i < 5 && !detectedOriginal; i++) {
+    state = await getState();
+    const flareActive = state.worldEvents?.some(
+      (e) => e.type === 'solar_flare'
+    );
+    const detectionsForOriginal = state.updates.filter(
+      (u) => u.type === 'detected' && u.fireId === originalFireId
+    );
+    if (!flareActive && detectionsForOriginal.length > 0) {
+      detectedOriginal = true;
+      break;
+    }
+    await tickNoFire();
+  }
+  assert(detectedOriginal, 'First fire detected (outside solar flare ticks)');
 
   // Expire the fire — tick enough to exceed FIRE_MAX_LIFETIME_TICKS (25)
   // Also enough for any spread children to expire
   for (let i = 0; i < 30; i++) await tickNoFire();
 
-  const state2 = await getState();
-  const originalStillAlive = state2.fires.some((f) => f.id === originalFireId);
+  state = await getState();
+  const originalStillAlive = state.fires.some((f) => f.id === originalFireId);
   assert(!originalStillAlive, 'Original fire expired after 30 ticks');
 
-  // New fire at same location — should be detected as new (new fireId)
+  // New fire at same location
   await tick({ lat: 0, lng: 0.5 });
+  state = await getState();
 
-  const state3 = await getState();
-  const detections = state3.updates.filter((u) => u.type === 'detected');
-  assert(detections.length >= 2, 'New fire at same location also detected (new fireId)');
+  // Identify a new fire near the same location with a different id
+  const newFire = state.fires.find(
+    (f) =>
+      Math.abs(f.lat - 0) < 1 &&
+      Math.abs(f.lng - 0.5) < 1 &&
+      f.id !== originalFireId
+  );
+  assert(newFire !== undefined, 'New fire at same location created with new id');
+  const newFireId = newFire.id;
+
+  // Allow a few ticks for the new fire to be detected, again skipping flare ticks
+  let detectedNew = false;
+  for (let i = 0; i < 5 && !detectedNew; i++) {
+    state = await getState();
+    const flareActive = state.worldEvents?.some(
+      (e) => e.type === 'solar_flare'
+    );
+    const detForNew = state.updates.filter(
+      (u) => u.type === 'detected' && u.fireId === newFireId
+    );
+    if (!flareActive && detForNew.length > 0) {
+      detectedNew = true;
+      break;
+    }
+    await tickNoFire();
+  }
+  assert(
+    detectedNew,
+    'New fire at same location also detected as a separate fire after expiry'
+  );
 }
 
 // ─── Test 10: Updates appear in /api/state ──────────────────

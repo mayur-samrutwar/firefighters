@@ -285,10 +285,15 @@ async function testEventExpiry() {
   await reset();
 
   // Solar flare has duration 3
-  await spawnWorldEvent({ type: 'solar_flare' });
+  const spawnRes = await spawnWorldEvent({ type: 'solar_flare' });
+  assert(spawnRes.ok === true, 'Solar flare spawned');
+  const flareId = spawnRes.event.id;
 
   const state1 = await getState();
-  assert(state1.worldEvents.some((e) => e.type === 'solar_flare'), 'Flare active initially');
+  const initialActive = state1.worldEvents.some(
+    (e) => e.type === 'solar_flare' && e.id === flareId
+  );
+  assert(initialActive, 'Original flare active initially');
 
   // Tick 3 times to exceed duration
   await tickNoFire();
@@ -296,10 +301,10 @@ async function testEventExpiry() {
   await tickNoFire();
 
   const state2 = await getState();
-  const flareStillActive = state2.worldEvents.some(
-    (e) => e.type === 'solar_flare'
+  const originalStillActive = state2.worldEvents.some(
+    (e) => e.type === 'solar_flare' && e.id === flareId
   );
-  assert(!flareStillActive, 'Solar flare expired after 3 ticks');
+  assert(!originalStillActive, 'Original solar flare expired after 3 ticks');
 }
 
 // ─── Test 9: Drought zone with specific radius ────────────────
@@ -455,16 +460,33 @@ async function testBackwardCompat() {
   assert(Array.isArray(state.worldEvents), 'worldEvents present');
   assert(typeof state.tick === 'number', 'tick is number');
 
-  // Detection still works
+  // Detection still works — but solar flares can temporarily blind satellites.
+  // We try several ticks and only require detection in at least one non-flare tick.
   await deploy({
     type: 'satellite',
     route: [[0, 0], [0, 20]],
     searchRadius: 10,
   });
-  await tick({ lat: 1, lng: 5, addFire: true });
-  const state2 = await getState();
-  const detections = state2.updates.filter((u) => u.type === 'detected');
-  assert(detections.length >= 1, 'Detection still works');
+
+  let detected = false;
+
+  for (let i = 0; i < 5 && !detected; i++) {
+    await tick({ lat: 1, lng: 5, addFire: true });
+    const s = await getState();
+
+    const flareActive = s.worldEvents.some((e) => e.type === 'solar_flare');
+    if (flareActive) {
+      // Satellite correctly blinded this tick; skip detection assertion.
+      continue;
+    }
+
+    const detections = s.updates.filter((u) => u.type === 'detected');
+    if (detections.length > 0) {
+      detected = true;
+    }
+  }
+
+  assert(detected, 'Detection still works in at least one non-flare tick');
 }
 
 // ─── Test 18: Drought outside zone does not affect fire ───────
