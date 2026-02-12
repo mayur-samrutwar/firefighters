@@ -3,7 +3,7 @@
  * City agent cron script.
  *
  * - Ticks the simulation every 30 seconds
- * - Spawns a NEW fire approximately every 2 minutes (every 4th tick)
+ * - Spawns a NEW fire approximately every 3 minutes (every 6th tick)
  *
  * Usage: node scripts/agent-tick.mjs [baseUrl]
  * Default: http://localhost:3000 (if port is busy, use 3001: npm run agent -- http://localhost:3001)
@@ -48,7 +48,7 @@ let tickCount = 0;
 
 async function tick() {
   tickCount += 1;
-  const shouldAddFire = tickCount % 4 === 1; // new fire every 4 ticks (~2 min at 30s/tick)
+  const shouldAddFire = tickCount % 6 === 1; // new fire every 6 ticks (~3 min at 30s/tick)
 
   const points = await loadLandPoints();
   let lat, lng;
