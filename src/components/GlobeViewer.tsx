@@ -159,6 +159,28 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
     return tex;
   }, []);
 
+  // Scout icon texture (billboard sprite)
+  const scoutTexture = useMemo(() => {
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load('/scout.png');
+    tex.anisotropy = 8;
+    // @ts-ignore - support both legacy and new colorSpace APIs
+    tex.colorSpace =
+      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    return tex;
+  }, []);
+
+  // Heavy tanker icon texture (billboard sprite)
+  const tankerTexture = useMemo(() => {
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load('/tanker.png');
+    tex.anisotropy = 8;
+    // @ts-ignore - support both legacy and new colorSpace APIs
+    tex.colorSpace =
+      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    return tex;
+  }, []);
+
   /* ─── Build globe objects ─────────────────────────────── */
 
   const globeObjects: GlobeObject[] = useMemo(() => {
@@ -266,6 +288,26 @@ export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
       const sprite = new THREE.Sprite(spriteMat);
       // Slightly larger than satellites so water drones read clearly
       sprite.scale.set(2.1, 2.1, 2.1);
+      group.add(sprite);
+    } else if (agent.type === 'scout') {
+      // Billboard sprite for scouts using scout.png
+      const spriteMat = new THREE.SpriteMaterial({
+        map: scoutTexture,
+        transparent: true,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(1.7, 1.7, 1.7);
+      group.add(sprite);
+    } else if (agent.type === 'heavy_tanker') {
+      // Billboard sprite for heavy tankers using tanker.png
+      const spriteMat = new THREE.SpriteMaterial({
+        map: tankerTexture,
+        transparent: true,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(2.0, 2.0, 2.0);
       group.add(sprite);
     } else if (agent.type === 'coordinator') {
       // Diamond for coordinator
