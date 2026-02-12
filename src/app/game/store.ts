@@ -65,6 +65,12 @@ export type Agent = {
   deployedAt: number; // timestamp ms
   playerId?: string; // owner player ID
 
+  // Control mode: internal (AI-driven) or external (API-driven)
+  controlMode?: 'internal' | 'external';
+  // Pending action from external API (for external agents)
+  // Stored as raw API format: { type: string, ... }
+  pendingExternalAction?: { type: string; [key: string]: unknown } | null;
+
   // Satellite — orbital movement
   route?: AgentRoute;
   searchRadius?: number; // degrees
@@ -318,6 +324,14 @@ export function getAgents() {
     .map((a) => ({ ...a }));
 }
 
+/**
+ * Get an agent by ID (including dead agents).
+ * Used for external agent action storage.
+ */
+export function getAgentById(agentId: string): Agent | undefined {
+  return agents.find((a) => a.id === agentId);
+}
+
 export function getUpdates() {
   return [...updates];
 }
@@ -356,6 +370,8 @@ export function deployAgent(params: {
   waterLevel?: number;
   // Player ownership
   playerId?: string;
+  // Control mode (default: internal)
+  controlMode?: 'internal' | 'external';
 }) {
   const cfg = AGENT_CONFIGS[params.type];
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -366,6 +382,8 @@ export function deployAgent(params: {
     batteryPercentage: params.batteryPercentage ?? 100,
     deployedAt: Date.now(),
     playerId: params.playerId,
+    controlMode: params.controlMode ?? 'internal',
+    pendingExternalAction: null,
   };
 
   if (params.type === 'satellite') {
@@ -401,6 +419,79 @@ export function deployAgent(params: {
 
   agents.push(agent);
   return agent;
+}
+
+/**
+ * Sync an external agent from Supabase into in-memory game state.
+ * Creates the agent if it doesn't exist, or updates it if it does.
+ * Used when external agents call APIs.
+ */
+export function syncExternalAgent(params: {
+  agentId: string; // Supabase agent.id
+  type: AgentType;
+  // Satellite
+  route?: AgentRoute;
+  searchRadius?: number;
+  // Drone starting position (defaults to 0,0 if not provided)
+  lat?: number;
+  lng?: number;
+}): Agent {
+  // Check if agent already exists
+  let agent = agents.find((a) => a.id === params.agentId);
+  
+  if (agent) {
+    // Update existing agent (e.g., if position changed)
+    if (params.lat !== undefined) agent.lat = params.lat;
+    if (params.lng !== undefined) agent.lng = params.lng;
+    if (params.route) agent.route = params.route;
+    if (params.searchRadius !== undefined) agent.searchRadius = params.searchRadius;
+    return agent;
+  }
+
+  // Create new agent
+  const cfg = AGENT_CONFIGS[params.type];
+  const agentData: Agent = {
+    id: params.agentId, // Use Supabase ID
+    type: params.type,
+    batteryPercentage: 100,
+    deployedAt: Date.now(),
+    controlMode: 'external',
+    pendingExternalAction: null,
+  };
+
+  if (params.type === 'satellite') {
+    if (params.route && params.route.length >= 2) {
+      agentData.route = params.route;
+    } else {
+      const existingSatellites = agents.filter((a) => a.type === 'satellite').length;
+      const routeIndex = existingSatellites % SATELLITE_ROUTES.length;
+      agentData.route = SATELLITE_ROUTES[routeIndex];
+    }
+    agentData.searchRadius = params.searchRadius ?? cfg.searchRadius;
+  } else {
+    agentData.lat = params.lat ?? 0;
+    agentData.lng = params.lng ?? 0;
+    agentData.speed = cfg.speed;
+    agentData.target = null;
+    agentData.currentAction = null;
+
+    if (params.type === 'scout') {
+      agentData.searchRadius = cfg.searchRadius;
+    }
+
+    if (cfg.waterCapacity > 0) {
+      agentData.waterCapacity = cfg.waterCapacity;
+      agentData.waterLevel = cfg.waterCapacity; // deploy full
+    }
+
+    if (cfg.chargeCapacity > 0) {
+      agentData.chargeCapacity = cfg.chargeCapacity;
+      agentData.chargeLevel = cfg.chargeCapacity;
+    }
+  }
+
+  agents.push(agentData);
+  return agentData;
 }
 
 /* ─── Haversine — imported from @/utils/geo ─────────────── */
@@ -574,6 +665,52 @@ function runRecharge() {
 
 /* ─── Perception → AI → Action loop ─────────────────────── */
 
+/**
+ * Converts external API action format to internal AgentAction format.
+ * External actions use `type` field, internal uses `action` field.
+ */
+function convertExternalActionToInternal(
+  externalAction: { type: string; [key: string]: unknown }
+): import('./actions').AgentAction | null {
+  switch (externalAction.type) {
+    case 'noop':
+      return { action: 'idle' };
+    case 'move_to': {
+      const lat = typeof externalAction.lat === 'number' ? externalAction.lat : undefined;
+      const lng = typeof externalAction.lng === 'number' ? externalAction.lng : undefined;
+      if (lat === undefined || lng === undefined) return null;
+      return { action: 'move_to', lat, lng };
+    }
+    case 'water_fire':
+      return { action: 'extinguish' };
+    case 'refill':
+      return { action: 'refill' };
+    case 'recharge_agent': {
+      const targetAgentId =
+        typeof externalAction.targetAgentId === 'string'
+          ? externalAction.targetAgentId
+          : undefined;
+      if (!targetAgentId) return null;
+      return { action: 'recharge', targetAgentId };
+    }
+    case 'set_scan_focus':
+      // For satellites, this is essentially idle (scanning happens automatically)
+      return { action: 'idle' };
+    case 'investigate_fire': {
+      // Convert investigate_fire to move_to if coordinates provided
+      const lat = typeof externalAction.lat === 'number' ? externalAction.lat : undefined;
+      const lng = typeof externalAction.lng === 'number' ? externalAction.lng : undefined;
+      if (lat !== undefined && lng !== undefined) {
+        return { action: 'move_to', lat, lng };
+      }
+      // Otherwise, treat as idle
+      return { action: 'idle' };
+    }
+    default:
+      return null;
+  }
+}
+
 function runPerceptionActionLoop() {
   for (const agent of agents) {
     if (agent.batteryPercentage <= 0) continue;
@@ -583,6 +720,22 @@ function runPerceptionActionLoop() {
       agent.currentAction = null;
     }
 
+    // External agents: use pending action from API
+    if (agent.controlMode === 'external') {
+      if (agent.pendingExternalAction) {
+        const internalAction = convertExternalActionToInternal(agent.pendingExternalAction);
+        if (internalAction) {
+          const label = executeAction(agent, internalAction);
+          if (label) agent.currentAction = label;
+        }
+        // Clear pending action after consuming it
+        agent.pendingExternalAction = null;
+      }
+      // If no pending action, agent remains idle (waiting for next API call)
+      continue;
+    }
+
+    // Internal agents: use AI decision-making
     // Build what this agent can see
     const perception = buildPerception(agent);
 

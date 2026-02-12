@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authenticateExternalAgent } from '@/lib/publicAgentsAuth';
 import { supabaseServer, isSupabaseConfigured } from '@/lib/supabaseServer';
+import { getAgentById, syncExternalAgent } from '@/app/game/store';
 
 type ActBody = {
   agentId?: string;
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // Update last_action_at to now; we don't yet wire the action into the engine.
+  // Update last_action_at to now
   const { error: upsertErr } = await supabase.from('agent_state_meta').upsert(
     {
       agent_id: auth.agent.id,
@@ -127,6 +128,36 @@ export async function POST(request: Request) {
     );
   }
 
+  // Sync external agent into in-memory state if not already present
+  let agent = getAgentById(auth.agent.id);
+  if (!agent) {
+    // Map Supabase profile to AgentType
+    const profileMap: Record<string, 'satellite' | 'scout' | 'water_drone' | 'heavy_tanker' | 'supply_drone'> = {
+      satellite: 'satellite',
+      scout: 'scout',
+      water_drone: 'water_drone',
+      heavy_tanker: 'heavy_tanker',
+      supply_drone: 'supply_drone',
+    };
+    const agentType = profileMap[auth.agent.profile];
+    if (!agentType) {
+      return NextResponse.json(
+        { ok: false, error: `Unknown profile: ${auth.agent.profile}` },
+        { status: 500 }
+      );
+    }
+    agent = syncExternalAgent({
+      agentId: auth.agent.id,
+      type: agentType,
+      lat: 0, // Default starting position
+      lng: 0,
+    });
+  }
+
+  // Store the action in the agent's pendingExternalAction
+  // Include all fields from the action object (lat, lng, targetAgentId, etc.)
+  agent.pendingExternalAction = action as { type: string; [key: string]: unknown };
+
   return NextResponse.json({
     ok: true,
     accepted: true,
@@ -136,7 +167,6 @@ export async function POST(request: Request) {
     },
     action: {
       type: actionType,
-      // We currently ignore additional fields; engine integration will use them.
     },
   });
 }
