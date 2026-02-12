@@ -280,28 +280,30 @@ async function testFireExpiryCleanup() {
   console.log('\n🧪 Test 9: Fire expiry — detection pairs cleaned up');
   await reset();
 
-  await deployAgent({ route: [[0, 0], [0, 1]], searchRadius: 10 });
+  await deployAgent({ route: [[0, 0], [0, 1]], searchRadius: 10, battery: 100 });
 
-  // Add fire, wait for it to expire (3 ticks), then add same-location fire
+  // Add fire, wait for it to expire (fires last up to 25 ticks max)
   await tick({ lat: 0, lng: 0.5 });
 
   const state1 = await getState();
-  assert(state1.updates.filter((u) => u.type === 'detected').length === 1, 'First fire detected');
+  const firstDetections = state1.updates.filter((u) => u.type === 'detected');
+  assert(firstDetections.length === 1, 'First fire detected');
+  const originalFireId = firstDetections[0]?.fireId;
 
-  // Expire the fire (ticks 2, 3, 4 — fire born at tick 1 expires after 3 ticks)
-  await tickNoFire();
-  await tickNoFire();
-  await tickNoFire();
+  // Expire the fire — tick enough to exceed FIRE_MAX_LIFETIME_TICKS (25)
+  // Also enough for any spread children to expire
+  for (let i = 0; i < 30; i++) await tickNoFire();
 
   const state2 = await getState();
-  assert(state2.fires.length === 0, 'First fire expired');
+  const originalStillAlive = state2.fires.some((f) => f.id === originalFireId);
+  assert(!originalStillAlive, 'Original fire expired after 30 ticks');
 
   // New fire at same location — should be detected as new (new fireId)
   await tick({ lat: 0, lng: 0.5 });
 
   const state3 = await getState();
   const detections = state3.updates.filter((u) => u.type === 'detected');
-  assert(detections.length === 2, 'New fire at same location also detected (new fireId)');
+  assert(detections.length >= 2, 'New fire at same location also detected (new fireId)');
 }
 
 // ─── Test 10: Updates appear in /api/state ──────────────────

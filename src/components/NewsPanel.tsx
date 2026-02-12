@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-type Fire = { id: string; lat: number; lng: number };
+type Fire = { id: string; lat: number; lng: number; intensity: number; fireType?: string };
 
 type UpdateEvent = {
   id: string;
@@ -86,18 +86,36 @@ export default function NewsPanel() {
             <p className="text-xs text-slate-400">No active fires</p>
           ) : (
             <div className="space-y-2.5">
-              {fires.map((f) => (
-                <div
-                  key={f.id}
-                  className="flex items-start gap-2.5 text-xs text-slate-600"
-                >
-                  <span
-                    className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: '#f97316' }}
-                  />
-                  <span>Fire at {formatCoord(f.lat, f.lng)}</span>
-                </div>
-              ))}
+              {fires.map((f) => {
+                const intColor =
+                  f.intensity <= 2
+                    ? '#f97316'
+                    : f.intensity <= 4
+                      ? '#ea580c'
+                      : '#dc2626';
+                const label =
+                  f.intensity >= 5
+                    ? 'Inferno'
+                    : `Int ${f.intensity}`;
+                return (
+                  <div
+                    key={f.id}
+                    className="flex items-start gap-2.5 text-xs text-slate-600"
+                  >
+                    <span
+                      className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: intColor }}
+                    />
+                    <span>
+                      <span className="font-medium text-slate-700">
+                        {label}
+                      </span>{' '}
+                      {f.fireType === 'chemical' ? '⚗️ ' : f.fireType === 'flash' ? '⚡ ' : ''}
+                      at {formatCoord(f.lat, f.lng)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

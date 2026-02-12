@@ -11,11 +11,16 @@ import { getAgentPositionAtElapsed } from '@/utils/agentPosition';
 
 /* ─── Types ─────────────────────────────────────────────── */
 
+export type FireType = 'wildfire' | 'chemical' | 'flash';
+
 export type Fire = {
   id: string;
   lat: number;
   lng: number;
   bornTick: number;
+  intensity: number; // 1-5
+  fireType: FireType;
+  parentId?: string; // id of fire that spawned this (spread tracking)
 };
 
 export type AgentRoute = [number, number][]; // [lat, lng] waypoints
@@ -41,9 +46,24 @@ export type UpdateEvent = {
 
 /* ─── Constants ─────────────────────────────────────────── */
 
-const FIRE_LIFETIME_TICKS = 3;
+// Battery
 const BATTERY_LIFETIME_TICKS = 120; // ~1 hour at 30s per tick
 const BATTERY_DRAIN_PER_TICK = 100 / BATTERY_LIFETIME_TICKS; // ~0.833%
+
+// Fire intensity & lifecycle
+const MAX_INTENSITY = 5;
+const INTENSITY_GROW_INTERVAL = 2; // ticks between intensity increases (wildfire/chemical)
+const FLASH_GROW_INTERVAL = 1; // flash fires grow every tick
+const BURNOUT_TICKS_AT_MAX = 8; // ticks at max intensity before fire burns out
+const FIRE_MAX_LIFETIME_TICKS = 25; // hard cap regardless of intensity
+
+// Fire spread
+const SPREAD_RADIUS_DEG = 2.5; // degrees — how far a fire can spread
+const SPREAD_CHANCE_INTENSITY_3 = 0.25; // 25% per tick at intensity 3-4
+const SPREAD_CHANCE_INTENSITY_5 = 0.5; // 50% per tick at inferno
+const MAX_FIRES = 50; // cap total active fires to prevent explosion
+
+// Events
 const MAX_EVENTS = 50;
 
 /* ─── State (on globalThis for dev-mode stability) ──────── */
@@ -80,7 +100,23 @@ export function getTick() {
 }
 
 export function getFires() {
-  return fires.filter((f) => state.tick - f.bornTick < FIRE_LIFETIME_TICKS);
+  return fires.filter((f) => isFireAlive(f));
+}
+
+/** Check if a fire is still burning */
+function isFireAlive(f: Fire): boolean {
+  const age = state.tick - f.bornTick;
+  // Hard lifetime cap
+  if (age >= FIRE_MAX_LIFETIME_TICKS) return false;
+  // Burn out after sitting at max intensity for BURNOUT_TICKS_AT_MAX
+  if (f.intensity >= MAX_INTENSITY) {
+    const growInterval =
+      f.fireType === 'flash' ? FLASH_GROW_INTERVAL : INTENSITY_GROW_INTERVAL;
+    const tickReachedMax = (MAX_INTENSITY - 1) * growInterval;
+    const ticksAtMax = age - tickReachedMax;
+    if (ticksAtMax >= BURNOUT_TICKS_AT_MAX) return false;
+  }
+  return true;
 }
 
 /** Only returns agents that are still alive (battery > 0) */
@@ -206,31 +242,120 @@ function pruneDetectedPairs() {
 export function processTick(newFire?: { lat: number; lng: number }) {
   state.tick += 1;
 
-  // 1. Clean expired fires
-  const kept = fires.filter(
-    (f) => state.tick - f.bornTick < FIRE_LIFETIME_TICKS
-  );
+  // 1. Clean dead fires
+  const kept = fires.filter((f) => isFireAlive(f));
   fires.length = 0;
   fires.push(...kept);
 
-  // 2. Add new fire if provided
+  // 2. Grow existing fires (intensity increases)
+  growFires();
+
+  // 3. Spread fires (high-intensity fires spawn new fires nearby)
+  spreadFires();
+
+  // 4. Add new fire if provided
   if (newFire) {
-    fires.push({
-      id: `fire-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      lat: newFire.lat,
-      lng: newFire.lng,
-      bornTick: state.tick,
-    });
+    addFire(newFire.lat, newFire.lng);
   }
 
-  // 3. Drain batteries and remove dead agents
+  // 5. Drain batteries and remove dead agents
   drainBatteries();
 
-  // 4. Run detection sweep (satellites check fires in range)
+  // 6. Run detection sweep (satellites check fires in range)
   runDetection();
 
-  // 5. Prune stale detection pairs
+  // 7. Prune stale detection pairs
   pruneDetectedPairs();
+}
+
+/* ─── Fire helpers ──────────────────────────────────────── */
+
+function randomFireType(): FireType {
+  const r = Math.random();
+  if (r < 0.15) return 'flash';
+  if (r < 0.30) return 'chemical';
+  return 'wildfire';
+}
+
+function addFire(
+  lat: number,
+  lng: number,
+  opts?: { fireType?: FireType; parentId?: string; intensity?: number }
+): Fire | null {
+  if (fires.length >= MAX_FIRES) return null;
+  const fire: Fire = {
+    id: `fire-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    lat,
+    lng,
+    bornTick: state.tick,
+    intensity: opts?.intensity ?? 1,
+    fireType: opts?.fireType ?? randomFireType(),
+    parentId: opts?.parentId,
+  };
+  fires.push(fire);
+  return fire;
+}
+
+function growFires() {
+  for (const fire of fires) {
+    if (fire.intensity >= MAX_INTENSITY) continue;
+    const age = state.tick - fire.bornTick;
+    const interval =
+      fire.fireType === 'flash' ? FLASH_GROW_INTERVAL : INTENSITY_GROW_INTERVAL;
+    // Increase intensity at each interval boundary
+    const expectedIntensity = Math.min(
+      MAX_INTENSITY,
+      1 + Math.floor(age / interval)
+    );
+    if (expectedIntensity > fire.intensity) {
+      fire.intensity = expectedIntensity;
+    }
+  }
+}
+
+function spreadFires() {
+  // Collect fires that can spread this tick (snapshot to avoid iterating new fires)
+  const candidates = fires.filter(
+    (f) => f.intensity >= 3 && isFireAlive(f)
+  );
+
+  for (const fire of candidates) {
+    if (fires.length >= MAX_FIRES) break;
+
+    const chance =
+      fire.intensity >= MAX_INTENSITY
+        ? SPREAD_CHANCE_INTENSITY_5
+        : SPREAD_CHANCE_INTENSITY_3;
+
+    if (Math.random() >= chance) continue;
+
+    // Spread in a random direction within SPREAD_RADIUS_DEG
+    const angle = Math.random() * 2 * Math.PI;
+    const dist = (0.5 + Math.random() * 0.5) * SPREAD_RADIUS_DEG; // 50-100% of max radius
+    const newLat = clampLat(fire.lat + dist * Math.sin(angle));
+    const newLng = wrapLng(fire.lng + dist * Math.cos(angle));
+
+    // Don't stack fires too close to existing ones
+    const tooClose = fires.some(
+      (f) => angularDistanceDeg(f.lat, f.lng, newLat, newLng) < 0.5
+    );
+    if (tooClose) continue;
+
+    addFire(newLat, newLng, {
+      fireType: fire.fireType, // child inherits type
+      parentId: fire.id,
+    });
+  }
+}
+
+function clampLat(lat: number): number {
+  return Math.max(-85, Math.min(85, lat));
+}
+
+function wrapLng(lng: number): number {
+  if (lng > 180) return lng - 360;
+  if (lng < -180) return lng + 360;
+  return lng;
 }
 
 /* ─── Testing helpers (only for test scripts) ───────────── */

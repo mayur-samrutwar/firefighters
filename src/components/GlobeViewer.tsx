@@ -18,11 +18,16 @@ function searchRadiusToGlobeUnits(deg: number): number {
 
 const COUNTRIES_GEOJSON = '/countries.geojson';
 
-type Fire = { id: string; lat: number; lng: number };
-const FIRE_MARKER: Fire[] = [];
+type Fire = {
+  id: string;
+  lat: number;
+  lng: number;
+  intensity: number;
+  fireType?: string;
+};
 
 type GlobeObject =
-  | { type: 'fire'; id: string; lat: number; lng: number }
+  | { type: 'fire'; id: string; lat: number; lng: number; intensity: number }
   | { type: 'agent'; lat: number; lng: number; agent: Agent };
 
 export default function GlobeViewer() {
@@ -115,6 +120,7 @@ export default function GlobeViewer() {
       id: f.id,
       lat: f.lat,
       lng: f.lng,
+      intensity: f.intensity ?? 1,
     }));
     const agentObjs: GlobeObject[] = agents.map((a) => {
       const pos = getAgentPosition(a);
@@ -176,11 +182,21 @@ export default function GlobeViewer() {
     return group;
   };
 
-  const fireMesh = useMemo(() => {
-    const geometry = new THREE.SphereGeometry(0.7, 12, 12);
-    const material = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+  /** Create a fire sphere scaled and colored by intensity (1-5) */
+  const createFireObject = (intensity: number) => {
+    // Size: 0.35 at int 1 → 1.4 at int 5
+    const size = 0.35 + (intensity - 1) * 0.2625;
+    const geometry = new THREE.SphereGeometry(size, 12, 12);
+    // Color: orange → deep orange → red
+    const color =
+      intensity <= 2
+        ? 0xf97316 // orange
+        : intensity <= 4
+          ? 0xea580c // deep orange
+          : 0xdc2626; // red
+    const material = new THREE.MeshBasicMaterial({ color });
     return new THREE.Mesh(geometry, material);
-  }, []);
+  };
 
   const ringsDataItems = [...fireObjects, ...agentRingData];
 
@@ -213,13 +229,17 @@ export default function GlobeViewer() {
         objectThreeObject={(d) => {
           const obj = d as GlobeObject;
           if (obj.type === 'agent') return createAgentObject(obj.agent.searchRadius);
-          return fireMesh.clone();
+          return createFireObject(obj.type === 'fire' ? obj.intensity : 1);
         }}
         objectLabel={(d) => {
           const obj = d as GlobeObject;
           if (obj.type === 'agent') {
             const a = obj.agent;
-            return `Satellite · ${a.batteryPercentage}% · ${a.searchRadius}° radius`;
+            return `Satellite · ${Math.round(a.batteryPercentage)}% · ${a.searchRadius}° radius`;
+          }
+          if (obj.type === 'fire') {
+            const label = obj.intensity >= 5 ? 'Inferno' : `Intensity ${obj.intensity}`;
+            return `Fire · ${label}`;
           }
           return '';
         }}
@@ -229,19 +249,33 @@ export default function GlobeViewer() {
         ringAltitude={(d: object) =>
           (d as GlobeObject).type === 'agent' ? 0.015 : 0.002
         }
-        ringColor={(d: object) =>
-          (d as GlobeObject).type === 'agent' ? '#3b82f6' : '#f97316'
-        }
+        ringColor={(d: object) => {
+          const o = d as GlobeObject;
+          if (o.type === 'agent') return '#3b82f6';
+          const intensity = o.type === 'fire' ? o.intensity : 1;
+          return intensity <= 2 ? '#f97316' : intensity <= 4 ? '#ea580c' : '#dc2626';
+        }}
         ringMaxRadius={(d: object) => {
           const o = d as GlobeObject;
-          return o.type === 'agent' ? o.agent.searchRadius : 0.6;
+          if (o.type === 'agent') return o.agent.searchRadius;
+          // Fire ring radius scales with intensity: 0.4 → 1.2
+          const intensity = o.type === 'fire' ? o.intensity : 1;
+          return 0.4 + (intensity - 1) * 0.2;
         }}
-        ringPropagationSpeed={(d: object) =>
-          (d as GlobeObject).type === 'agent' ? 0 : 2
-        }
-        ringRepeatPeriod={(d: object) =>
-          (d as GlobeObject).type === 'agent' ? Infinity : 1500
-        }
+        ringPropagationSpeed={(d: object) => {
+          const o = d as GlobeObject;
+          if (o.type === 'agent') return 0;
+          // Faster propagation for higher intensity
+          const intensity = o.type === 'fire' ? o.intensity : 1;
+          return 1 + intensity * 0.5;
+        }}
+        ringRepeatPeriod={(d: object) => {
+          const o = d as GlobeObject;
+          if (o.type === 'agent') return Infinity;
+          // Faster pulse for higher intensity
+          const intensity = o.type === 'fire' ? o.intensity : 1;
+          return Math.max(600, 1500 - intensity * 200);
+        }}
       />
     </div>
   );
