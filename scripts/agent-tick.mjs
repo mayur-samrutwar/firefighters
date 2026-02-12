@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * City agent cron script. Runs every 30 seconds.
- * POSTs to /api/tick to advance the game - optionally adds a fire at a random location.
- * Fires persist for 3 ticks (~90 seconds) then are removed.
+ * City agent cron script.
+ *
+ * - Ticks the simulation every 30 seconds
+ * - Spawns a NEW fire approximately every 2 minutes (every 4th tick)
  *
  * Usage: node scripts/agent-tick.mjs [baseUrl]
  * Default: http://localhost:3000 (if port is busy, use 3001: npm run agent -- http://localhost:3001)
@@ -43,7 +44,12 @@ function wrapLng(lng) {
   return lng;
 }
 
+let tickCount = 0;
+
 async function tick() {
+  tickCount += 1;
+  const shouldAddFire = tickCount % 4 === 1; // new fire every 4 ticks (~2 min at 30s/tick)
+
   const points = await loadLandPoints();
   let lat, lng;
   if (points?.length) {
@@ -59,7 +65,7 @@ async function tick() {
     lat = randomLat();
     lng = randomLng();
   }
-  const body = { lat, lng, addFire: true };
+  const body = { lat, lng, addFire: shouldAddFire };
 
   try {
     const res = await fetch(`${BASE_URL}/api/tick`, {
@@ -68,11 +74,16 @@ async function tick() {
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    console.log(
-      new Date().toISOString(),
-      res.ok ? 'OK' : 'FAIL',
-      `fire at ${lat.toFixed(2)}, ${lng.toFixed(2)}`
-    );
+    const prefix = new Date().toISOString();
+    if (shouldAddFire) {
+      console.log(
+        prefix,
+        res.ok ? 'OK' : 'FAIL',
+        `fire at ${lat.toFixed(2)}, ${lng.toFixed(2)}`
+      );
+    } else {
+      console.log(prefix, res.ok ? 'OK' : 'FAIL', '(tick only, no new fire)');
+    }
     if (!res.ok) console.error(data);
   } catch (err) {
     console.error(new Date().toISOString(), 'ERROR', err.message);

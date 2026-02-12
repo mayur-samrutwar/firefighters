@@ -117,6 +117,63 @@ type AgentConfig = {
   searchRadius: number; // detection radius in degrees (0 = no detection)
 };
 
+// Predefined satellite orbits so multiple satellites follow different routes
+// around the globe instead of clustering on a single track.
+const SATELLITE_ROUTES: AgentRoute[] = [
+  // Equatorial orbit
+  [
+    [0, -180],
+    [0, -90],
+    [0, 0],
+    [0, 90],
+    [0, 180],
+  ],
+  // Polar orbit along Greenwich meridian
+  [
+    [-80, 0],
+    [0, 0],
+    [80, 0],
+  ],
+  // Polar orbit along 90°E
+  [
+    [-80, 90],
+    [0, 90],
+    [80, 90],
+  ],
+  // Mid‑latitude northern band
+  [
+    [45, -180],
+    [45, -90],
+    [45, 0],
+    [45, 90],
+    [45, 180],
+  ],
+  // Mid‑latitude southern band
+  [
+    [-45, -180],
+    [-45, -90],
+    [-45, 0],
+    [-45, 90],
+    [-45, 180],
+  ],
+  // Diagonal NW → SE
+  [
+    [60, -150],
+    [30, -60],
+    [0, 0],
+    [-30, 60],
+    [-60, 150],
+  ],
+  // Diagonal NE → SW
+  [
+    [60, 150],
+    [30, 60],
+    [0, 0],
+    [-30, -60],
+    [-60, -150],
+  ],
+];
+
 const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   satellite: {
     drainPerTick: 100 / 120, // ~1 hour
@@ -294,10 +351,13 @@ export function deployAgent(params: {
   };
 
   if (params.type === 'satellite') {
-    agent.route = params.route ?? [
-      [0, 0],
-      [0, 10],
-    ];
+    if (params.route && params.route.length >= 2) {
+      agent.route = params.route;
+    } else {
+      const existingSatellites = agents.filter((a) => a.type === 'satellite').length;
+      const routeIndex = existingSatellites % SATELLITE_ROUTES.length;
+      agent.route = SATELLITE_ROUTES[routeIndex];
+    }
     agent.searchRadius = params.searchRadius ?? cfg.searchRadius;
   } else {
     agent.lat = params.lat ?? 0;

@@ -22,8 +22,8 @@ export const PRESET_ROUTES: { id: string; label: string; route: AgentRoute }[] =
     ],
   },
   {
-    id: 'polar',
-    label: 'Polar orbit',
+    id: 'polar-0',
+    label: 'Polar orbit (0°E)',
     route: [
       [85, 0],
       [60, 0],
@@ -40,6 +40,24 @@ export const PRESET_ROUTES: { id: string; label: string; route: AgentRoute }[] =
     ],
   },
   {
+    id: 'polar-90e',
+    label: 'Polar orbit (90°E)',
+    route: [
+      [85, 90],
+      [60, 90],
+      [30, 90],
+      [0, 90],
+      [-30, 90],
+      [-60, 90],
+      [-85, 90],
+      [-60, 90],
+      [-30, 90],
+      [0, 90],
+      [30, 90],
+      [60, 90],
+    ],
+  },
+  {
     id: 'tropical-north',
     label: 'Tropical north (23°N)',
     route: [
@@ -48,6 +66,19 @@ export const PRESET_ROUTES: { id: string; label: string; route: AgentRoute }[] =
       [23, 0],
       [23, 90],
       [23, 180],
+    ],
+  },
+  {
+    id: 'mid-north',
+    label: 'Mid‑latitude north (45°N)',
+    route: [
+      [45, -180],
+      [45, -120],
+      [45, -60],
+      [45, 0],
+      [45, 60],
+      [45, 120],
+      [45, 180],
     ],
   },
   {
@@ -62,6 +93,19 @@ export const PRESET_ROUTES: { id: string; label: string; route: AgentRoute }[] =
     ],
   },
   {
+    id: 'mid-south',
+    label: 'Mid‑latitude south (45°S)',
+    route: [
+      [-45, -180],
+      [-45, -120],
+      [-45, -60],
+      [-45, 0],
+      [-45, 60],
+      [-45, 120],
+      [-45, 180],
+    ],
+  },
+  {
     id: 'atlantic-europe',
     label: 'Atlantic–Europe pass',
     route: [
@@ -70,6 +114,39 @@ export const PRESET_ROUTES: { id: string; label: string; route: AgentRoute }[] =
       [35, 10],
       [45, 25],
       [55, 15],
+    ],
+  },
+  {
+    id: 'pacific-ring',
+    label: 'Pacific ring',
+    route: [
+      [40, -150],
+      [20, -120],
+      [0, -90],
+      [-20, -120],
+      [-40, -150],
+    ],
+  },
+  {
+    id: 'diagonal-nw-se',
+    label: 'Diagonal NW → SE',
+    route: [
+      [60, -150],
+      [30, -60],
+      [0, 0],
+      [-30, 60],
+      [-60, 150],
+    ],
+  },
+  {
+    id: 'diagonal-ne-sw',
+    label: 'Diagonal NE → SW',
+    route: [
+      [60, 150],
+      [30, 60],
+      [0, 0],
+      [-30, -60],
+      [-60, -150],
     ],
   },
 ];
