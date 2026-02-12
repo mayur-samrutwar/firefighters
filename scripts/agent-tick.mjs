@@ -14,6 +14,9 @@
 const BASE_URL =
   process.argv[2] || process.env.API_URL || 'http://localhost:3000';
 
+// Precomputed land anchor points (cities, coasts, etc.) used as seeds.
+// We jitter around these so fires can appear over a much wider set of land
+// locations instead of only at a few exact coordinates.
 let landPoints = null;
 async function loadLandPoints() {
   if (landPoints) return landPoints;
@@ -34,13 +37,24 @@ function randomLng() {
   return -180 + Math.random() * 360;
 }
 
+function wrapLng(lng) {
+  if (lng > 180) return lng - 360;
+  if (lng < -180) return lng + 360;
+  return lng;
+}
+
 async function tick() {
   const points = await loadLandPoints();
   let lat, lng;
   if (points?.length) {
     const p = points[Math.floor(Math.random() * points.length)];
-    lat = p[0];
-    lng = p[1];
+    // Jitter around the base land point by up to ±4° to spread fires
+    // across broader land areas while still roughly on land.
+    const JITTER_DEG = 4;
+    const dLat = (Math.random() - 0.5) * JITTER_DEG;
+    const dLng = (Math.random() - 0.5) * JITTER_DEG;
+    lat = Math.max(-85, Math.min(85, p[0] + dLat));
+    lng = wrapLng(p[1] + dLng);
   } else {
     lat = randomLat();
     lng = randomLng();

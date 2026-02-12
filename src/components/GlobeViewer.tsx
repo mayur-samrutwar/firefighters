@@ -53,7 +53,7 @@ const AGENT_LABELS: Record<AgentType, string> = {
   coordinator: 'Coordinator',
 };
 
-export default function GlobeViewer() {
+export default function GlobeViewer({ autoRotate }: { autoRotate: boolean }) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
@@ -110,7 +110,7 @@ export default function GlobeViewer() {
       try {
         globe.pointOfView({ altitude: 1.5 }, 0);
         const controls = globe.controls();
-        controls.autoRotate = true;
+        controls.autoRotate = autoRotate;
         controls.autoRotateSpeed = 0.15;
         const scene = globe.scene();
         scene.fog = null;
@@ -130,12 +130,23 @@ export default function GlobeViewer() {
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [globeReady]);
+  }, [globeReady, autoRotate]);
 
   const globeMaterial = useMemo(
     () => new THREE.MeshBasicMaterial({ color: 0xffffff }),
     []
   );
+
+  // Satellite icon texture (billboard sprite)
+  const satelliteTexture = useMemo(() => {
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load('/satellite.png');
+    tex.anisotropy = 8;
+    tex.colorSpace =
+      // @ts-ignore - support both legacy and new colorSpace APIs
+      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    return tex;
+  }, []);
 
   /* ─── Build globe objects ─────────────────────────────── */
 
@@ -209,10 +220,16 @@ export default function GlobeViewer() {
     const color = AGENT_COLORS[agent.type] ?? 0x3b82f6;
 
     if (agent.type === 'satellite') {
-      // Cube for satellites
-      const geom = new THREE.BoxGeometry(0.35, 0.35, 0.35);
-      const mat = new THREE.MeshBasicMaterial({ color });
-      group.add(new THREE.Mesh(geom, mat));
+      // Billboard sprite for satellites using satellite.png
+      const spriteMat = new THREE.SpriteMaterial({
+        map: satelliteTexture,
+        transparent: true,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      // Slightly oversized so satellites are clearly visible from orbit
+      sprite.scale.set(1.8, 1.8, 1.8);
+      group.add(sprite);
 
       // Hit disc for ring hover
       if (agent.searchRadius) {

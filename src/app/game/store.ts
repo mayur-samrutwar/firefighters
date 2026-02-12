@@ -100,6 +100,7 @@ export type UpdateEvent = {
 export { type WaterSource, WATER_SOURCES };
 export { type BulletinPost, getBulletinPosts };
 export { type Player, getPlayers, getLeaderboard, registerPlayer, playerExists } from './players';
+export { getAgentLeaderboard } from './agentScores';
 export { type WorldEvent, getActiveEvents, forceSpawnEvent } from './worldEvents';
 
 export function getActiveWorldEvents(): WorldEvent[] {
@@ -408,7 +409,7 @@ function runExtinguish() {
       lat: nearestFire.lat,
       lng: nearestFire.lng,
     });
-    scoreWatering(agent.playerId);
+    scoreWatering(agent, state.tick);
 
     // Check if extinguished
     if (nearestFire.intensity <= 0) {
@@ -419,7 +420,7 @@ function runExtinguish() {
         lat: nearestFire.lat,
         lng: nearestFire.lng,
       });
-      scoreExtinguished(agent.playerId);
+      scoreExtinguished(agent, state.tick);
     }
   }
 }
@@ -479,7 +480,7 @@ function runRecharge() {
     agent.chargeLevel -= transfer;
     target.batteryPercentage = Math.min(100, target.batteryPercentage + transfer);
     agent.currentAction = 'recharging';
-    scoreRechargeAssist(agent.playerId);
+    scoreRechargeAssist(agent, state.tick);
   }
 }
 
@@ -550,7 +551,7 @@ function runDetection() {
           lat: fire.lat,
           lng: fire.lng,
         });
-        scoreDetection(agent.playerId);
+        scoreDetection(agent, state.tick);
       }
     }
   }

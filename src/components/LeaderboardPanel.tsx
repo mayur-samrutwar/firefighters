@@ -2,22 +2,23 @@
 
 import { useEffect, useState } from 'react';
 
-type Player = {
-  id: string;
-  name: string;
+type AgentEntry = {
+  agentId: string;
+  label: string;
+  type: string;
   score: number;
-  joinedTick: number;
+  firstTick: number;
 };
 
 export default function LeaderboardPanel() {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [agents, setAgents] = useState<AgentEntry[]>([]);
 
   useEffect(() => {
     const fetchLeaderboard = () =>
       fetch('/api/state', { cache: 'no-store' })
         .then((res) => res.json())
-        .then((data) => setPlayers(data.leaderboard || []))
-        .catch(() => setPlayers([]));
+        .then((data) => setAgents(data.agentLeaderboard || []))
+        .catch(() => setAgents([]));
     fetchLeaderboard();
     const interval = setInterval(fetchLeaderboard, 2000);
     return () => clearInterval(interval);
@@ -44,23 +45,23 @@ export default function LeaderboardPanel() {
     <div className="pointer-events-auto absolute left-8 bottom-8 z-10 w-72">
       <div className={box}>
         <p className="border-b border-slate-200/80 px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          Leaderboard
-          {players.length > 0 && (
+          Agent Leaderboard
+          {agents.length > 0 && (
             <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
-              {players.length}
+              {agents.length}
             </span>
           )}
         </p>
         <div className="max-h-64 overflow-y-auto">
-          {players.length === 0 ? (
+          {agents.length === 0 ? (
             <p className="px-4 py-6 text-center text-xs text-slate-400">
-              No players yet
+              No agents scored yet
             </p>
           ) : (
             <div className="divide-y divide-slate-100">
-              {players.slice(0, 20).map((player, idx) => (
+              {agents.slice(0, 20).map((entry, idx) => (
                 <div
-                  key={player.id}
+                  key={entry.agentId}
                   className="flex items-center gap-3 px-4 py-2.5"
                 >
                   {/* Rank */}
@@ -73,14 +74,14 @@ export default function LeaderboardPanel() {
                   {/* Name + joined info */}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[12px] font-medium text-slate-700">
-                      {player.name}
+                      {entry.label}
                     </p>
                   </div>
 
                   {/* Score */}
                   <div className="text-right">
                     <p className={`text-[13px] tabular-nums ${rankStyle(idx)}`}>
-                      {player.score.toLocaleString()}
+                      {entry.score.toLocaleString()}
                     </p>
                     <p className="text-[9px] text-slate-300">pts</p>
                   </div>

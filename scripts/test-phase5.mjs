@@ -84,11 +84,11 @@ async function getPlayers() {
 
 // ─── SCORING CONSTANTS (mirror server values) ───────────────
 const POINTS = {
-  FIRE_DETECTED: 10,
+  FIRE_DETECTED: 4,
   FIRE_EXTINGUISHED: 50,
-  WATERING: 5,
+  WATERING: 6,
   COORDINATOR_ASSIST: 20,
-  RECHARGE_ASSIST: 5,
+  RECHARGE_ASSIST: 6,
 };
 
 // ─── Test 1: Leaderboard in /api/state response ──────────────

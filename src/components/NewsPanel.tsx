@@ -7,11 +7,13 @@ type Fire = { id: string; lat: number; lng: number; intensity: number; fireType?
 type UpdateEvent = {
   id: string;
   tick: number;
-  type: 'detected' | 'watering' | 'extinguished';
+  type: 'detected' | 'watering' | 'extinguished' | 'world_event';
   agentId?: string;
   fireId?: string;
   lat: number;
   lng: number;
+  worldEventType?: string;
+  message?: string;
 };
 
 function formatCoord(lat: number, lng: number) {
@@ -43,6 +45,18 @@ function eventText(u: UpdateEvent): { agent: string | null; text: string } {
       return {
         agent: u.agentId ? `Drone ${shortId(u.agentId)}` : null,
         text: 'extinguished fire at',
+      };
+    case 'world_event':
+      return {
+        agent: null,
+        text:
+          u.message ??
+          (u.worldEventType ? `world event: ${u.worldEventType}` : 'world event at'),
+      };
+    default:
+      return {
+        agent: null,
+        text: 'update at',
       };
   }
 }
@@ -146,7 +160,9 @@ export default function NewsPanel() {
                             ? '#f97316'
                             : u.type === 'watering'
                               ? '#3b82f6'
-                              : '#22c55e',
+                              : u.type === 'extinguished'
+                                ? '#22c55e'
+                                : '#a855f7',
                       }}
                     />
                     <span>

@@ -1,6 +1,7 @@
 import {
   getAgents,
   getActiveWorldEvents,
+  getAgentLeaderboard,
   getBulletinPosts,
   getFires,
   getLeaderboard,
@@ -18,7 +19,8 @@ export async function GET() {
     updates: getUpdates(),
     waterSources: getWaterSources(),
     bulletin: getBulletinPosts(),
-    leaderboard: getLeaderboard(),
+    leaderboard: getLeaderboard(), // legacy player leaderboard (may be empty)
+    agentLeaderboard: getAgentLeaderboard(),
     worldEvents: getActiveWorldEvents(),
   });
 }
