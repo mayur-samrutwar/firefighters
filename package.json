@@ -13,7 +13,8 @@
     "test:supabase": "node scripts/test-supabase-tables.mjs",
     "test:public-agents": "node scripts/test-public-agents-register.mjs",
     "test:public-agents-auth": "node scripts/test-public-agents-auth.mjs",
-    "test:public-agents-perception": "node scripts/test-public-agents-perception.mjs"
+    "test:public-agents-perception": "node scripts/test-public-agents-perception.mjs",
+    "test:public-agents-act": "node scripts/test-public-agents-act.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",
