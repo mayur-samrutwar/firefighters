@@ -34,16 +34,22 @@ export function interpolateRoute(
   return { lat, lng };
 }
 
-/** Client-side: position based on wall-clock time */
+/** Client-side: position based on wall-clock time (satellites only) */
 export function getAgentPosition(agent: Agent): { lat: number; lng: number } {
+  if (!agent.route || agent.route.length < 2) {
+    return { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
+  }
   const elapsed = (Date.now() - agent.deployedAt) / 1000;
   return interpolateRoute(agent.route, elapsed);
 }
 
-/** Server-side: position based on explicit elapsed seconds */
+/** Server-side: position based on explicit elapsed seconds (satellites only) */
 export function getAgentPositionAtElapsed(
   agent: Agent,
   elapsedSeconds: number
 ): { lat: number; lng: number } {
+  if (!agent.route || agent.route.length < 2) {
+    return { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
+  }
   return interpolateRoute(agent.route, elapsedSeconds);
 }

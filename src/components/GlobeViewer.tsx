@@ -4,7 +4,7 @@ import { useRef, useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import type { GlobeMethods } from 'react-globe.gl';
-import type { Agent } from '@/app/game/store';
+import type { Agent, AgentType } from '@/app/game/store';
 import { getAgentPosition } from '@/utils/agentPosition';
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
@@ -26,9 +26,32 @@ type Fire = {
   fireType?: string;
 };
 
+type WaterSource = { id: string; lat: number; lng: number; name: string };
+
 type GlobeObject =
   | { type: 'fire'; id: string; lat: number; lng: number; intensity: number }
-  | { type: 'agent'; lat: number; lng: number; agent: Agent };
+  | { type: 'agent'; lat: number; lng: number; agent: Agent }
+  | { type: 'water'; id: string; lat: number; lng: number; name: string };
+
+/* ─── Agent type visual configs ─────────────────────────── */
+
+const AGENT_COLORS: Record<AgentType, number> = {
+  satellite: 0x3b82f6, // blue
+  scout: 0x22c55e, // green
+  water_drone: 0x06b6d4, // cyan
+  heavy_tanker: 0x0284c7, // dark blue
+  supply_drone: 0xa855f7, // purple
+  coordinator: 0xeab308, // gold
+};
+
+const AGENT_LABELS: Record<AgentType, string> = {
+  satellite: 'Satellite',
+  scout: 'Scout',
+  water_drone: 'Water Drone',
+  heavy_tanker: 'Heavy Tanker',
+  supply_drone: 'Supply Drone',
+  coordinator: 'Coordinator',
+};
 
 export default function GlobeViewer() {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
@@ -36,6 +59,7 @@ export default function GlobeViewer() {
   const [countries, setCountries] = useState<object[]>([]);
   const [fires, setFires] = useState<Fire[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [waterSources, setWaterSources] = useState<WaterSource[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
   const [tick, setTick] = useState(0);
 
@@ -46,6 +70,7 @@ export default function GlobeViewer() {
         .then((data) => {
           setFires(data.fires || []);
           setAgents(data.agents || []);
+          setWaterSources(data.waterSources || []);
         })
         .catch(() => {
           setFires([]);
@@ -83,19 +108,17 @@ export default function GlobeViewer() {
     const globe = globeRef.current;
     const id = requestAnimationFrame(() => {
       try {
-        // Closer zoom: default altitude is 2.5, lower = more zoomed in
         globe.pointOfView({ altitude: 1.5 }, 0);
-
         const controls = globe.controls();
         controls.autoRotate = true;
         controls.autoRotateSpeed = 0.15;
-
         const scene = globe.scene();
         scene.fog = null;
-        scene.traverse((obj: { __globeObjType?: string; visible?: boolean }) => {
-          if (obj.__globeObjType === 'atmosphere') obj.visible = false;
-        });
-        // Ensure hex polygon dots are consistently lit (MeshLambert needs light)
+        scene.traverse(
+          (obj: { __globeObjType?: string; visible?: boolean }) => {
+            if (obj.__globeObjType === 'atmosphere') obj.visible = false;
+          }
+        );
         const hasLights = scene.children.some(
           (c) => c.type === 'AmbientLight' || c.type === 'DirectionalLight'
         );
@@ -103,7 +126,7 @@ export default function GlobeViewer() {
           scene.add(new THREE.AmbientLight(0xffffff, 2));
         }
       } catch {
-        // Controls not ready yet
+        /* Controls not ready yet */
       }
     });
     return () => cancelAnimationFrame(id);
@@ -114,6 +137,8 @@ export default function GlobeViewer() {
     []
   );
 
+  /* ─── Build globe objects ─────────────────────────────── */
+
   const globeObjects: GlobeObject[] = useMemo(() => {
     const fireObjs: GlobeObject[] = (fires || []).map((f) => ({
       type: 'fire' as const,
@@ -122,19 +147,39 @@ export default function GlobeViewer() {
       lng: f.lng,
       intensity: f.intensity ?? 1,
     }));
+
     const agentObjs: GlobeObject[] = agents.map((a) => {
-      const pos = getAgentPosition(a);
+      // Satellites use orbital interpolation, drones use stored lat/lng
+      const pos =
+        a.type === 'satellite' && a.route
+          ? getAgentPosition(a)
+          : { lat: a.lat ?? 0, lng: a.lng ?? 0 };
       return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
     });
-    return [...fireObjs, ...agentObjs];
-  }, [fires, agents, tick]);
 
-  // Stable refs for agent ring data so the rings layer reuses (not remove+recreate)
+    const waterObjs: GlobeObject[] = waterSources.map((ws) => ({
+      type: 'water' as const,
+      id: ws.id,
+      lat: ws.lat,
+      lng: ws.lng,
+      name: ws.name,
+    }));
+
+    return [...fireObjs, ...agentObjs, ...waterObjs];
+  }, [fires, agents, waterSources, tick]);
+
+  /* ─── Agent ring data (stable refs) ───────────────────── */
+
   const agentRingDataRef = useRef<Map<string, GlobeObject>>(new Map());
   const agentRingData = useMemo(() => {
     const map = agentRingDataRef.current;
     agents.forEach((a) => {
-      const pos = getAgentPosition(a);
+      // Only show rings for satellite and scout (agents with searchRadius)
+      if (!a.searchRadius) return;
+      const pos =
+        a.type === 'satellite' && a.route
+          ? getAgentPosition(a)
+          : { lat: a.lat ?? 0, lng: a.lng ?? 0 };
       const existing = map.get(a.id);
       if (existing && existing.type === 'agent') {
         existing.lat = pos.lat;
@@ -149,7 +194,6 @@ export default function GlobeViewer() {
         });
       }
     });
-    // Remove stale agents
     for (const id of map.keys()) {
       if (!agents.some((a) => a.id === id)) map.delete(id);
     }
@@ -158,45 +202,63 @@ export default function GlobeViewer() {
 
   const fireObjects = globeObjects.filter((o) => o.type === 'fire');
 
-  const createAgentObject = (searchRadius: number) => {
+  /* ─── Three.js object creators ────────────────────────── */
+
+  const createAgentObject = (agent: Agent) => {
     const group = new THREE.Group();
+    const color = AGENT_COLORS[agent.type] ?? 0x3b82f6;
 
-    // Visible satellite cube
-    const boxGeom = new THREE.BoxGeometry(0.35, 0.35, 0.35);
-    const boxMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
-    group.add(new THREE.Mesh(boxGeom, boxMat));
+    if (agent.type === 'satellite') {
+      // Cube for satellites
+      const geom = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+      const mat = new THREE.MeshBasicMaterial({ color });
+      group.add(new THREE.Mesh(geom, mat));
 
-    // Invisible hit-area disc for whole ring (tangent plane: rotation.x = -π/2)
-    const hitRadius = searchRadiusToGlobeUnits(searchRadius);
-    const hitGeom = new THREE.CircleGeometry(hitRadius, 32);
-    const hitMat = new THREE.MeshBasicMaterial({
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const hitDisc = new THREE.Mesh(hitGeom, hitMat);
-    hitDisc.rotation.x = -Math.PI / 2;
-    group.add(hitDisc);
+      // Hit disc for ring hover
+      if (agent.searchRadius) {
+        const hitRadius = searchRadiusToGlobeUnits(agent.searchRadius);
+        const hitGeom = new THREE.CircleGeometry(hitRadius, 32);
+        const hitMat = new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const hitDisc = new THREE.Mesh(hitGeom, hitMat);
+        hitDisc.rotation.x = -Math.PI / 2;
+        group.add(hitDisc);
+      }
+    } else if (agent.type === 'coordinator') {
+      // Diamond for coordinator
+      const geom = new THREE.OctahedronGeometry(0.4);
+      const mat = new THREE.MeshBasicMaterial({ color });
+      group.add(new THREE.Mesh(geom, mat));
+    } else {
+      // Cone (pointing up) for drones
+      const geom = new THREE.ConeGeometry(0.2, 0.5, 6);
+      const mat = new THREE.MeshBasicMaterial({ color });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.rotation.x = Math.PI; // point up from globe surface
+      group.add(mesh);
+    }
 
     return group;
   };
 
-  /** Create a fire sphere scaled and colored by intensity (1-5) */
   const createFireObject = (intensity: number) => {
-    // Size: 0.35 at int 1 → 1.4 at int 5
     const size = 0.35 + (intensity - 1) * 0.2625;
     const geometry = new THREE.SphereGeometry(size, 12, 12);
-    // Color: orange → deep orange → red
     const color =
-      intensity <= 2
-        ? 0xf97316 // orange
-        : intensity <= 4
-          ? 0xea580c // deep orange
-          : 0xdc2626; // red
+      intensity <= 2 ? 0xf97316 : intensity <= 4 ? 0xea580c : 0xdc2626;
     const material = new THREE.MeshBasicMaterial({ color });
     return new THREE.Mesh(geometry, material);
   };
+
+  const waterMesh = useMemo(() => {
+    const geometry = new THREE.SphereGeometry(0.4, 12, 12);
+    const material = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+    return new THREE.Mesh(geometry, material);
+  }, []);
 
   const ringsDataItems = [...fireObjects, ...agentRingData];
 
@@ -225,21 +287,37 @@ export default function GlobeViewer() {
         objectsData={globeObjects}
         objectLat={(d) => (d as GlobeObject).lat}
         objectLng={(d) => (d as GlobeObject).lng}
-        objectAltitude={0.015}
+        objectAltitude={(d) => {
+          const obj = d as GlobeObject;
+          return obj.type === 'water' ? 0.005 : 0.015;
+        }}
         objectThreeObject={(d) => {
           const obj = d as GlobeObject;
-          if (obj.type === 'agent') return createAgentObject(obj.agent.searchRadius);
+          if (obj.type === 'agent') return createAgentObject(obj.agent);
+          if (obj.type === 'water') return waterMesh.clone();
           return createFireObject(obj.type === 'fire' ? obj.intensity : 1);
         }}
         objectLabel={(d) => {
           const obj = d as GlobeObject;
           if (obj.type === 'agent') {
             const a = obj.agent;
-            return `Satellite · ${Math.round(a.batteryPercentage)}% · ${a.searchRadius}° radius`;
+            const label = AGENT_LABELS[a.type] ?? a.type;
+            let info = `${label} · ${Math.round(a.batteryPercentage)}%`;
+            if (a.searchRadius) info += ` · ${a.searchRadius}° radius`;
+            if (a.waterCapacity != null)
+              info += ` · Water ${a.waterLevel ?? 0}/${a.waterCapacity}`;
+            if (a.chargeCapacity != null)
+              info += ` · Charge ${Math.round(a.chargeLevel ?? 0)}%`;
+            if (a.currentAction) info += ` · ${a.currentAction}`;
+            return info;
           }
           if (obj.type === 'fire') {
-            const label = obj.intensity >= 5 ? 'Inferno' : `Intensity ${obj.intensity}`;
+            const label =
+              obj.intensity >= 5 ? 'Inferno' : `Intensity ${obj.intensity}`;
             return `Fire · ${label}`;
+          }
+          if (obj.type === 'water') {
+            return `Water Source · ${obj.name}`;
           }
           return '';
         }}
@@ -251,28 +329,34 @@ export default function GlobeViewer() {
         }
         ringColor={(d: object) => {
           const o = d as GlobeObject;
-          if (o.type === 'agent') return '#3b82f6';
+          if (o.type === 'agent') {
+            return AGENT_COLORS[o.agent.type]
+              ? `#${AGENT_COLORS[o.agent.type].toString(16).padStart(6, '0')}`
+              : '#3b82f6';
+          }
           const intensity = o.type === 'fire' ? o.intensity : 1;
-          return intensity <= 2 ? '#f97316' : intensity <= 4 ? '#ea580c' : '#dc2626';
+          return intensity <= 2
+            ? '#f97316'
+            : intensity <= 4
+              ? '#ea580c'
+              : '#dc2626';
         }}
         ringMaxRadius={(d: object) => {
           const o = d as GlobeObject;
-          if (o.type === 'agent') return o.agent.searchRadius;
-          // Fire ring radius scales with intensity: 0.4 → 1.2
+          if (o.type === 'agent')
+            return (o.agent.searchRadius ?? 0) || 0;
           const intensity = o.type === 'fire' ? o.intensity : 1;
           return 0.4 + (intensity - 1) * 0.2;
         }}
         ringPropagationSpeed={(d: object) => {
           const o = d as GlobeObject;
           if (o.type === 'agent') return 0;
-          // Faster propagation for higher intensity
           const intensity = o.type === 'fire' ? o.intensity : 1;
           return 1 + intensity * 0.5;
         }}
         ringRepeatPeriod={(d: object) => {
           const o = d as GlobeObject;
           if (o.type === 'agent') return Infinity;
-          // Faster pulse for higher intensity
           const intensity = o.type === 'fire' ? o.intensity : 1;
           return Math.max(600, 1500 - intensity * 200);
         }}

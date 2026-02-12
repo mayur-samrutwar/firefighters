@@ -31,18 +31,18 @@ function eventText(u: UpdateEvent): { agent: string | null; text: string } {
   switch (u.type) {
     case 'detected':
       return {
-        agent: u.agentId ? `Satellite ${shortId(u.agentId)}` : null,
+        agent: u.agentId ? `Agent ${shortId(u.agentId)}` : null,
         text: 'detected fire at',
       };
     case 'watering':
       return {
-        agent: u.agentId ? `Agent ${shortId(u.agentId)}` : null,
-        text: 'watering at',
+        agent: u.agentId ? `Drone ${shortId(u.agentId)}` : null,
+        text: 'watering fire at',
       };
     case 'extinguished':
       return {
-        agent: null,
-        text: 'Fire extinguished at',
+        agent: u.agentId ? `Drone ${shortId(u.agentId)}` : null,
+        text: 'extinguished fire at',
       };
   }
 }

@@ -1,38 +1,80 @@
-import { deployAgent } from '@/app/game/store';
+import { deployAgent, type AgentType } from '@/app/game/store';
 import { NextResponse } from 'next/server';
+
+const VALID_TYPES: AgentType[] = [
+  'satellite',
+  'scout',
+  'water_drone',
+  'heavy_tanker',
+  'supply_drone',
+  'coordinator',
+];
 
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { type, route, batteryPercentage, searchRadius } = body;
+    const { type, route, batteryPercentage, searchRadius, lat, lng, waterLevel } =
+      body;
 
+    if (!VALID_TYPES.includes(type)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Invalid agent type. Valid types: ${VALID_TYPES.join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Satellite requires a route
+    if (type === 'satellite') {
+      if (!Array.isArray(route) || route.length < 2) {
+        return NextResponse.json(
+          { ok: false, error: 'Satellite requires a route with at least 2 waypoints' },
+          { status: 400 }
+        );
+      }
+      const validRoute = route.every(
+        (p: unknown) =>
+          Array.isArray(p) &&
+          p.length >= 2 &&
+          typeof p[0] === 'number' &&
+          typeof p[1] === 'number'
+      );
+      if (!validRoute) {
+        return NextResponse.json(
+          { ok: false, error: 'Invalid route format' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Non-satellite types need lat/lng starting position
     if (type !== 'satellite') {
-      return NextResponse.json({ ok: false, error: 'Invalid agent type' }, { status: 400 });
+      if (typeof lat !== 'number' || typeof lng !== 'number') {
+        return NextResponse.json(
+          { ok: false, error: 'Non-satellite agents require lat and lng' },
+          { status: 400 }
+        );
+      }
     }
 
-    if (!Array.isArray(route) || route.length < 2) {
-      return NextResponse.json({ ok: false, error: 'Route must have at least 2 waypoints' }, { status: 400 });
-    }
-
-    const validRoute = route.every(
-      (p: unknown) =>
-        Array.isArray(p) &&
-        p.length >= 2 &&
-        typeof p[0] === 'number' &&
-        typeof p[1] === 'number'
-    );
-    if (!validRoute) {
-      return NextResponse.json({ ok: false, error: 'Invalid route format' }, { status: 400 });
-    }
-
-    const battery = typeof batteryPercentage === 'number' ? Math.max(0, Math.min(100, batteryPercentage)) : 100;
-    const radius = typeof searchRadius === 'number' && searchRadius > 0 ? searchRadius : 5;
+    const battery =
+      typeof batteryPercentage === 'number'
+        ? Math.max(0, Math.min(100, batteryPercentage))
+        : 100;
 
     const agent = deployAgent({
-      type: 'satellite',
-      route: route as [number, number][],
+      type: type as AgentType,
+      route: type === 'satellite' ? (route as [number, number][]) : undefined,
+      searchRadius:
+        typeof searchRadius === 'number' && searchRadius > 0
+          ? searchRadius
+          : undefined,
+      lat: typeof lat === 'number' ? lat : undefined,
+      lng: typeof lng === 'number' ? lng : undefined,
       batteryPercentage: battery,
-      searchRadius: radius,
+      waterLevel: typeof waterLevel === 'number' ? waterLevel : undefined,
     });
 
     return NextResponse.json({ ok: true, agent });
