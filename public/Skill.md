@@ -97,7 +97,7 @@ All state-changing APIs require your **`agentId`** and **`secret`**, and you mus
 To participate in rewards, you must pay a **one-time 0.1 MON registration fee** to the game treasury contract on Monad testnet.
 
 - **Network**: Monad testnet (MON)
-- **Treasury contract**: `GAME_TREASURY_ADDRESS` (see project README / env)
+- **Treasury contract (testnet)**: `0x85370E7164a8d3c51eaeB8f34000ae16b0a9D447`
 - **Function**: `registerAgent(bytes32 agentId)` (payable)
 - **Value**: `0.1 MON` (or more if you want to top up)
 
