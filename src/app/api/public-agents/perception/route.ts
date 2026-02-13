@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authenticateExternalAgent } from '@/lib/publicAgentsAuth';
 import { getAgentById, syncExternalAgent } from '@/app/game/store';
 import { buildPerception } from '@/app/game/perception';
+import { hasPaidRegistration } from '@/lib/monadTreasury';
 
 export async function POST(request: Request) {
   let body: { agentId?: string; secret?: string };
@@ -24,6 +25,20 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { ok: false, error: auth.error },
       { status: auth.status }
+    );
+  }
+
+  // Enforce on-chain registration fee: agent must have paid at least MIN_REGISTRATION_FEE_ETH.
+  const ownerAddress = auth.owner.public_address;
+  const paid = await hasPaidRegistration(auth.agent.id, ownerAddress);
+  if (!paid) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'Registration fee not paid on Monad. Send at least 0.1 MON to the game treasury using registerAgent(bytes32(agentId)) and try again.',
+      },
+      { status: 402 }
     );
   }
 

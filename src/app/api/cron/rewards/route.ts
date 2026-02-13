@@ -37,7 +37,7 @@ export async function POST() {
     await closeTx.wait();
 
     const lastBucketReward: bigint = await treasury.lastBucketReward();
-    if (lastBucketReward === 0n) {
+    if (lastBucketReward === BigInt(0)) {
       return NextResponse.json({
         ok: true,
         action: 'closed_hour_no_reward',
