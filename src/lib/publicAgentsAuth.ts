@@ -1,4 +1,4 @@
-import { supabaseServer, isSupabaseConfigured } from './supabaseServer.ts';
+import { supabaseServer, isSupabaseConfigured } from './supabaseServer';
 import crypto from 'node:crypto';
 
 type AgentRow = {

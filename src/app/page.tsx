@@ -1,14 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import BulletinPanel from '@/components/BulletinPanel';
 import DeploySection from '@/components/DeploySection';
-import GlobeViewer from '@/components/GlobeViewer';
 import NewsPanel from '@/components/NewsPanel';
 import WorldEventsPanel from '@/components/WorldEventsPanel';
 import ActiveAgentsPanel from '@/components/ActiveAgentsPanel';
 import EarthLifeRing from '@/components/EarthLifeRing';
 import InfoModal from '@/components/InfoModal';
+
+const GlobeViewer = dynamic(() => import('@/components/GlobeViewer'), {
+  ssr: false,
+  loading: () => (
+    <div className="absolute inset-0 bg-white" aria-hidden="true" />
+  ),
+});
 
 export default function Home() {
   const [autoRotate, setAutoRotate] = useState(true);
