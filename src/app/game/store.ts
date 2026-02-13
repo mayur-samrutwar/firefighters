@@ -89,7 +89,7 @@ const MAX_INTENSITY = 5;
 const INTENSITY_GROW_INTERVAL = 2;
 const FLASH_GROW_INTERVAL = 1;
 const BURNOUT_TICKS_AT_MAX = 8;
-const FIRE_MAX_LIFETIME_TICKS = 25;
+const FIRE_MAX_LIFETIME_TICKS = 60;
 
 const SPREAD_RADIUS_DEG = 2.5;
 const SPREAD_CHANCE_INTENSITY_3 = 0.25;
@@ -106,10 +106,8 @@ const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
 const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
 
 // Background fire seeding — approximate behavior of scripts/agent-tick.mjs.
-// Instead of a fixed interval, we use a small probabilistic chance each tick
-// so that, over long-running games, fresh fires can erupt at truly random
-// locations across the globe without resetting the DB.
-const BACKGROUND_FIRE_SPAWN_CHANCE = 0.02;
+// Spawn rate: 1 fire per 6 ticks on average (1/6 ≈ 0.1667)
+const BACKGROUND_FIRE_SPAWN_CHANCE = 1 / 6;
 
 /* ─── Agent type configs ────────────────────────────────── */
 
@@ -770,7 +768,11 @@ function drainBatteries(ctx: TickContext): void {
 
     a.batteryPercentage = Math.max(0, a.batteryPercentage - drain);
   }
-  const alive = ctx.agents.filter((a) => a.batteryPercentage > 0);
+  // Keep external agents even when dead (battery = 0) so they can be recharged/respawned
+  // Only remove internal agents when they die
+  const alive = ctx.agents.filter(
+    (a) => a.batteryPercentage > 0 || a.controlMode === 'external'
+  );
   ctx.agents.length = 0;
   ctx.agents.push(...alive);
 }

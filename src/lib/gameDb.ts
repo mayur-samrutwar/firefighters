@@ -353,7 +353,9 @@ export async function saveTickContext(ctx: TickContext): Promise<void> {
     // 2. Fires (tick-only writes, safe to replace)
     replaceAll('game_fires', ctx.fires.map(fireToRow)),
 
-    // 3. Agents — differential: delete dead, upsert alive
+    // 3. Agents — differential: delete dead internal agents, upsert alive
+    // Note: External agents are kept in ctx.agents even when dead (battery = 0)
+    // so they persist in the database and can be recharged/respawned
     (async () => {
       if (deadAgentIds.length > 0) {
         await sb.from('game_agents').delete().in('id', deadAgentIds);
