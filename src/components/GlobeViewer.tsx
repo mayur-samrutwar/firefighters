@@ -551,13 +551,28 @@ export default function GlobeViewer({
         arcStartLng={(d: object) => (d as AgentPath).startLng}
         arcEndLat={(d: object) => (d as AgentPath).endLat}
         arcEndLng={(d: object) => (d as AgentPath).endLng}
+        arcAltitude={(d: object) => {
+          const a = d as AgentPath;
+          const dist = angularDistanceDeg(
+            a.startLat,
+            a.startLng,
+            a.endLat,
+            a.endLng
+          );
+          // Raise long paths higher so they don't visually "hug" the globe.
+          const t = Math.min(1, dist / 120); // 0–1 for 0–120°
+          return 0.06 + t * 0.18; // 0.06–0.24
+        }}
         arcColor={(d: object) => {
           const a = d as AgentPath;
           const base = AGENT_COLORS[a.agentType] ?? 0x3b82f6;
           const hex = `#${base.toString(16).padStart(6, '0')}`;
-          return [hex, hex] as [string, string];
+          // Slight fade from bright at origin to dimmer at destination
+          const start = hex;
+          const end = '#e5e5e5';
+          return [start, end] as [string, string];
         }}
-        arcStroke={0.8}
+        arcStroke={1.6}
       />
     </div>
   );
