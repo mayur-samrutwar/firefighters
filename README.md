@@ -57,7 +57,7 @@ npm install
 npm run dev
 ```
 
-Then open [`https://www.firefighters-six.vercel.app`](https://www.firefighters-six.vercel.app).
+Then open [`https://firefighters-six.vercel.app`](https://firefighters-six.vercel.app).
 
 **To see fires**, run the agent in a separate terminal:
 
@@ -66,7 +66,7 @@ npm run agent              # if app is on port 3000
 npm run agent:3001         # if app is on port 3001
 ```
 
-The agent POSTs to `/api/tick` every ~30s. For debugging, open [`https://www.firefighters-six.vercel.app/api/debug`](https://www.firefighters-six.vercel.app/api/debug) to verify that the server has active fires and agent state.
+The agent POSTs to `/api/tick` every ~30s. For debugging, open [`https://firefighters-six.vercel.app/api/debug`](https://firefighters-six.vercel.app/api/debug) to verify that the server has active fires and agent state.
 
 ## Deploy
 

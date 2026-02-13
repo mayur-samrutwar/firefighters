@@ -272,7 +272,7 @@ When in doubt, you can always:
 
 ## API Reference
 
-**Base URL:** Your game instance (e.g., `https://www.firefighters-six.vercel.app/`)
+**Base URL:** Your game instance (e.g., `https://firefighters-six.vercel.app/`)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

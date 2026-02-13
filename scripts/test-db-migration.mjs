@@ -11,7 +11,7 @@
 
 const BASE =
   process.env.TEST_BASE_URL ||
-  'https://www.firefighters-six.vercel.app';
+  'https://firefighters-six.vercel.app';
 
 let passed = 0;
 let failed = 0;

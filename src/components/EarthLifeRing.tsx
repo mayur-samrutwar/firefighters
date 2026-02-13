@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 export default function EarthLifeRing() {
   const [life, setLife] = useState(100);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const fetchState = () =>
@@ -12,6 +13,9 @@ export default function EarthLifeRing() {
         .then((data) => {
           if (typeof data.earthLife === 'number') {
             setLife(Math.max(0, Math.min(100, data.earthLife)));
+          }
+          if (typeof data.tick === 'number') {
+            setTick(data.tick);
           }
         })
         .catch(() => {
@@ -50,9 +54,8 @@ export default function EarthLifeRing() {
           <span className="text-xs font-medium text-slate-700">
             {pct <= 0 ? 'Collapse' : pct > 66 ? 'Stable' : pct > 33 ? 'Stressed' : 'Critical'}
           </span>
-          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-slate-400">
-            <span className="inline-block h-1 w-1 rounded-full bg-slate-300" />
-            <span>Tap &ldquo;How to play&rdquo; for details</span>
+          <span className="mt-0.5 text-[10px] text-slate-400">
+            Tick: {tick}
           </span>
         </div>
       </div>
