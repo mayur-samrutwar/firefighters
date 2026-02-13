@@ -153,7 +153,10 @@ async function main() {
 
   // 6. Trigger hourly rewards cron (manually)
   console.log('\n💸 Trigger hourly rewards cron via /api/cron/rewards');
-  const rewardsRes = await api('POST', '/api/cron/rewards');
+  const rewardsHeaders = TICK_API_SECRET
+    ? { Authorization: `Bearer ${TICK_API_SECRET}` }
+    : {};
+  const rewardsRes = await api('POST', '/api/cron/rewards', {}, rewardsHeaders);
   assert(rewardsRes.ok === true, 'Rewards cron call should succeed');
 
   console.log('Rewards cron action:', rewardsRes.action);

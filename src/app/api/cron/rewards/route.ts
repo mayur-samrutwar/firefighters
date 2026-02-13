@@ -84,10 +84,15 @@ export async function POST(request: Request) {
 
     // 3. Otherwise, distribute rewards to top agents by leaderboard
     if (!leaderboard.length) {
+      // No one to reward this hour → burn the reward bucket and mark settled
+      const burnTx = await treasury.burnLastHourRewardsOnCollapse();
+      await burnTx.wait();
+
       return NextResponse.json({
         ok: true,
-        action: 'no_leaderboard_entries',
+        action: 'burned_last_hour_no_leaderboard',
         earthLife,
+        burned: lastBucketReward.toString(),
       });
     }
 
@@ -109,10 +114,21 @@ export async function POST(request: Request) {
       lastBucketReward: lastBucketReward.toString(),
       winners: topN.map((e) => e.agentId),
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('cron/rewards error', err);
     return NextResponse.json(
-      { ok: false, error: 'cron rewards failed' },
+      {
+        ok: false,
+        error: 'cron rewards failed',
+        detail:
+          err && typeof err === 'object'
+            ? {
+                message: err.message ?? String(err),
+                code: err.code,
+                reason: err.reason,
+              }
+            : { message: String(err) },
+      },
       { status: 500 }
     );
   }

@@ -126,6 +126,9 @@ contract GameTreasury {
         } else {
             lastBucketReward = 0;
             emit HourClosed(epoch, 0, 0, 0);
+            // Nothing to settle when there's no bucket.
+            lastBucketSettled = true;
+            return;
         }
 
         lastBucketSettled = false;
