@@ -5,6 +5,7 @@ import { ethers } from 'ethers';
 const GAME_TREASURY_ADDRESS = process.env.GAME_TREASURY_ADDRESS;
 const MONAD_RPC_URL = process.env.MONAD_TESTNET_RPC_URL;
 const GAME_OPERATOR_PRIVATE_KEY = process.env.MONAD_TESTNET_PRIVATE_KEY;
+const TICK_API_SECRET = process.env.TICK_API_SECRET;
 
 // Minimal ABI for GameTreasury (native MON)
 const TREASURY_ABI = [
@@ -14,7 +15,27 @@ const TREASURY_ABI = [
   'function lastBucketReward() view returns (uint256)',
 ];
 
-export async function POST() {
+export async function POST(request: Request) {
+  // Same bearer-token protection as /api/tick
+  if (!TICK_API_SECRET) {
+    console.error('TICK_API_SECRET not configured');
+    return NextResponse.json(
+      { ok: false, error: 'Rewards endpoint not configured' },
+      { status: 500 }
+    );
+  }
+
+  const authHeader = request.headers.get('authorization');
+  const providedToken = authHeader?.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : authHeader?.trim();
+
+  if (!providedToken || providedToken !== TICK_API_SECRET) {
+    return NextResponse.json(
+      { ok: false, error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
   if (!GAME_TREASURY_ADDRESS || !MONAD_RPC_URL || !GAME_OPERATOR_PRIVATE_KEY) {
     return NextResponse.json(
       { ok: false, error: 'Monad treasury env vars not configured' },
