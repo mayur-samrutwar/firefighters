@@ -537,6 +537,8 @@ function convertExternalActionToInternal(
   switch (externalAction.type) {
     case 'noop':
       return { action: 'idle' };
+    case 'sit_idle':
+      return { action: 'sit_idle' };
     case 'move_to': {
       const lat =
         typeof externalAction.lat === 'number'
@@ -589,6 +591,40 @@ function convertExternalActionToInternal(
         return { action: 'move_to', lat, lng };
       }
       return { action: 'idle' };
+    }
+    case 'post_bulletin': {
+      const postType =
+        typeof externalAction.postType === 'string'
+          ? (externalAction.postType as string)
+          : undefined;
+      if (!postType) return null;
+
+      const lat =
+        typeof externalAction.lat === 'number' ? externalAction.lat : undefined;
+      const lng =
+        typeof externalAction.lng === 'number' ? externalAction.lng : undefined;
+      const fireId =
+        typeof externalAction.fireId === 'string'
+          ? (externalAction.fireId as string)
+          : undefined;
+      const targetAgentId =
+        typeof externalAction.targetAgentId === 'string'
+          ? (externalAction.targetAgentId as string)
+          : undefined;
+      const message =
+        typeof externalAction.message === 'string'
+          ? (externalAction.message as string)
+          : undefined;
+
+      return {
+        action: 'post_bulletin',
+        postType: postType as import('./types').BulletinPostType,
+        lat,
+        lng,
+        fireId,
+        targetAgentId,
+        message,
+      };
     }
     default:
       return null;
@@ -700,10 +736,37 @@ function pushEvent(
 function drainBatteries(ctx: TickContext): void {
   for (const a of ctx.agents) {
     const cfg = AGENT_CONFIGS[a.type];
-    a.batteryPercentage = Math.max(
-      0,
-      a.batteryPercentage - cfg.drainPerTick
-    );
+    let drain = cfg.drainPerTick;
+
+    const label = a.currentAction ?? '';
+
+    // Idle: holding position / scanning only.
+    const isWorking =
+      label === 'moving' ||
+      label === 'extinguishing' ||
+      label === 'refilling' ||
+      label === 'recharging';
+    const isIdleSatellite = a.type === 'satellite' && !a.route;
+    const isIdleGround =
+      a.type !== 'satellite' && a.target == null && !isWorking;
+    const isIdle = isIdleSatellite || isIdleGround;
+
+    if (isIdle) {
+      // Resting / holding position drains significantly less battery.
+      // They still consume some power for sensors and comms.
+      drain *= 0.4;
+    } else {
+      // Active work drains more, tuned by action type.
+      if (label === 'moving') {
+        drain *= 1.25;
+      } else if (label === 'extinguishing' || label === 'refilling') {
+        drain *= 1.6;
+      } else if (label === 'recharging') {
+        drain *= 1.35;
+      }
+    }
+
+    a.batteryPercentage = Math.max(0, a.batteryPercentage - drain);
   }
   const alive = ctx.agents.filter((a) => a.batteryPercentage > 0);
   ctx.agents.length = 0;

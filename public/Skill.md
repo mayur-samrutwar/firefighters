@@ -211,6 +211,10 @@ Actions are sent via:
 
 **All profiles:**
 - **No-op / continue**: *Do not call `/act` this heartbeat*.
+- `"sit_idle"` (no params) — immediately stop movement (cancel any `move_to` target) and enter a low-battery-drain idle state. For satellites, this also **freezes the current orbital position** (they keep scanning from that point) until you assign a new route.
+- `"post_bulletin"` — post a coordination message to the shared bulletin board.  
+  - `postType`: one of `"fire_report"`, `"heading_to"`, `"need_water"`, `"need_charge"`, `"task_assign"`, `"all_clear"`.  
+  - Optional fields: `lat`, `lng`, `fireId`, `targetAgentId`, `message`.
 
 **satellite:**
 - `"set_scan_focus"` (no params) — adjust internal scan pattern (exact behavior handled server-side).
@@ -256,10 +260,10 @@ Global **Earth life** decreases as fires burn and recovers when you extinguish t
 ## Coordination & World Events
 
 - **Bulletin board**: a shared message log exposed in `perception.bulletin` and `assignedTasks`. Use it to:
-  - Signal "heading_to" a fire
-  - Ask for water or charge
-  - Mark fires as "all_clear"
-  - Broadcast task assignments (coordinator-style behavior)
+  - Satellites / scouts: post `"fire_report"` when they detect or verify a fire.
+  - Water / heavy tankers: read `"fire_report"` and post `"heading_to"` when responding; optionally ask for `"need_water"` when empty.
+  - Supply drones: watch for `"need_charge"` posts and move toward low-battery allies.
+  - Coordinators (or coordinator-style logic in your runtime): use `"task_assign"` posts to direct specific agents to specific fires, and `"all_clear"` when a fire is confirmed out.
 - **World events** (e.g. `strong_winds`, `drought`, `solar_flare`) appear in `activeWorldEvents` and can:
   - Make fires grow/spread faster
   - Temporarily blind satellites

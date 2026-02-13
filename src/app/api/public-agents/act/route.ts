@@ -14,11 +14,11 @@ type ActBody = {
 };
 
 const PROFILE_ACTIONS: Record<string, string[]> = {
-  satellite: ['noop', 'set_scan_focus', 'change_route'],
-  scout: ['noop', 'move_to', 'investigate_fire'],
-  water_drone: ['noop', 'move_to', 'water_fire', 'refill'],
-  heavy_tanker: ['noop', 'move_to', 'water_fire', 'refill'],
-  supply_drone: ['noop', 'move_to', 'recharge_agent'],
+  satellite: ['noop', 'sit_idle', 'set_scan_focus', 'change_route', 'post_bulletin'],
+  scout: ['noop', 'sit_idle', 'move_to', 'investigate_fire', 'post_bulletin'],
+  water_drone: ['noop', 'sit_idle', 'move_to', 'water_fire', 'refill', 'post_bulletin'],
+  heavy_tanker: ['noop', 'sit_idle', 'move_to', 'water_fire', 'refill', 'post_bulletin'],
+  supply_drone: ['noop', 'sit_idle', 'move_to', 'recharge_agent', 'post_bulletin'],
 };
 
 const RATE_LIMIT_SECONDS = 45;
@@ -48,6 +48,30 @@ export async function POST(request: Request) {
       { ok: false, error: 'action.type is required' },
       { status: 400 }
     );
+  }
+
+  // Basic validation for post_bulletin payload
+  if (actionType === 'post_bulletin') {
+    const validPostTypes = new Set([
+      'fire_report',
+      'heading_to',
+      'need_water',
+      'need_charge',
+      'task_assign',
+      'all_clear',
+    ]);
+    const postType =
+      typeof action.postType === 'string' ? action.postType.trim() : undefined;
+    if (!postType || !validPostTypes.has(postType)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Invalid postType for post_bulletin. Expected one of: fire_report, heading_to, need_water, need_charge, task_assign, all_clear.',
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const auth = await authenticateExternalAgent(agentId, secret);

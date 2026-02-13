@@ -7,6 +7,7 @@
  */
 
 import type { Agent, BulletinPost, BulletinPostType } from './types';
+import { getAgentPositionAtElapsed } from '@/utils/agentPosition';
 
 /* ─── Action types ──────────────────────────────────────── */
 
@@ -15,6 +16,7 @@ export type AgentAction =
   | { action: 'extinguish' }
   | { action: 'refill' }
   | { action: 'recharge'; targetAgentId: string }
+  | { action: 'sit_idle' }
   | {
       action: 'post_bulletin';
       postType: BulletinPostType;
@@ -87,6 +89,27 @@ export function executeAction(
         return 'route updated';
       }
       return null;
+    }
+
+    case 'sit_idle': {
+      // Ground / air agents: cancel any movement target so they stay put.
+      agent.target = null;
+
+      // Satellites: freeze current orbital position and drop the route.
+      // Once frozen, they keep scanning from this point with lower battery drain
+      // until a new route is assigned.
+      if (agent.type === 'satellite' && agent.route) {
+        const elapsedSeconds = (Date.now() - agent.deployedAt) / 1000;
+        const { lat, lng } = getAgentPositionAtElapsed(
+          agent,
+          elapsedSeconds
+        );
+        agent.lat = lat;
+        agent.lng = lng;
+        agent.route = undefined;
+      }
+
+      return 'idle';
     }
 
     case 'idle': {

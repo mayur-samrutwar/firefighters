@@ -10,13 +10,13 @@ import type { Agent, Player, AgentScoreEntry } from './types';
 
 /* ─── Point values ──────────────────────────────────────── */
 
-export const POINTS = {
-  FIRE_DETECTED: 4,
+export const POINTS: Record<string, number> = {
+  FIRE_DETECTED: 4, // base value; per-role tweaks applied in scoreDetection
   FIRE_EXTINGUISHED: 10,
   WATERING: 6,
   COORDINATOR_ASSIST: 8,
   RECHARGE_ASSIST: 6,
-} as const;
+};
 
 /* ─── Scoring context (subset of TickContext) ────────────── */
 
@@ -48,7 +48,19 @@ export function scoreDetection(
   agent?: Agent,
   tick: number = 0
 ) {
-  award(ctx, agent, POINTS.FIRE_DETECTED, POINTS.FIRE_DETECTED, tick);
+  if (!agent) return;
+
+  // Differentiate detection value by role:
+  // - Satellites get lower per-detection score (wide, cheap sensing)
+  // - Scouts get higher per-detection score (close-range verification)
+  let points = POINTS.FIRE_DETECTED;
+  if (agent.type === 'satellite') {
+    points = 2;
+  } else if (agent.type === 'scout') {
+    points = 6;
+  }
+
+  award(ctx, agent, points, points, tick);
 }
 
 export function scoreWatering(
