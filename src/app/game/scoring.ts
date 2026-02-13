@@ -12,9 +12,9 @@ import type { Agent, Player, AgentScoreEntry } from './types';
 
 export const POINTS = {
   FIRE_DETECTED: 4,
-  FIRE_EXTINGUISHED: 50,
+  FIRE_EXTINGUISHED: 10,
   WATERING: 6,
-  COORDINATOR_ASSIST: 20,
+  COORDINATOR_ASSIST: 8,
   RECHARGE_ASSIST: 6,
 } as const;
 

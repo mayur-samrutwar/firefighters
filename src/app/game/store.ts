@@ -10,12 +10,7 @@
 import { getAgentPositionAtElapsed } from '@/utils/agentPosition';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
 import { executeAction, type ActionContext } from './actions';
-import { decideActions } from './agentAI';
-import {
-  pruneBulletinCtx,
-  getBulletinPostsFromList,
-} from './bulletin';
-import { buildPerceptionFromData } from './perception';
+import { pruneBulletinCtx } from './bulletin';
 import {
   scoreDetection,
   scoreExtinguished,
@@ -594,14 +589,6 @@ function convertExternalActionToInternal(
 }
 
 function runPerceptionActionLoop(ctx: TickContext): void {
-  const activeFires = getAliveFires(ctx);
-  const aliveAgents = ctx.agents.filter((a) => a.batteryPercentage > 0);
-  const activeBulletins = getBulletinPostsFromList(ctx.bulletinPosts);
-  const activeWorldEvents = getActiveEventsFromList(
-    ctx.worldEvents,
-    ctx.tick
-  );
-
   const actionCtx: ActionContext = {
     tick: ctx.tick,
     bulletinPosts: ctx.bulletinPosts,
@@ -628,22 +615,8 @@ function runPerceptionActionLoop(ctx: TickContext): void {
       }
       continue;
     }
-
-    // Internal agents: AI decision
-    const perception = buildPerceptionFromData(
-      agent,
-      ctx.tick,
-      activeFires,
-      aliveAgents,
-      activeBulletins,
-      activeWorldEvents
-    );
-
-    const actions = decideActions(perception);
-    for (const act of actions) {
-      const label = executeAction(agent, act, actionCtx);
-      if (label) agent.currentAction = label;
-    }
+    // Internal agents: no-op (all decision-making is external)
+    // They will only move/act when given explicit external actions.
   }
 }
 
