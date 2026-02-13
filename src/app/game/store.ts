@@ -106,8 +106,10 @@ const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
 const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
 
 // Background fire seeding — approximate behavior of scripts/agent-tick.mjs.
-// With a 30s tick, every 6th tick ≈ every 3 minutes.
-const BACKGROUND_FIRE_INTERVAL_TICKS = 6;
+// Instead of a fixed interval, we use a small probabilistic chance each tick
+// so that, over long-running games, fresh fires can erupt at truly random
+// locations across the globe without resetting the DB.
+const BACKGROUND_FIRE_SPAWN_CHANCE = 0.02;
 
 /* ─── Agent type configs ────────────────────────────────── */
 
@@ -821,11 +823,17 @@ function addFire(
   return fire;
 }
 
-/** Periodically seed a new fire, used when no external seeding script is running. */
+/** Periodically seed a new fire at a random global location.
+ *
+ * This is intentionally *not* tied to existing clusters, so that in long‑running
+ * sessions (hours of ticks) we still see new fires erupting all over the map
+ * rather than only around 1–2 historical storm centers.
+ */
 function maybeSeedBackgroundFire(ctx: TickContext): void {
   if (ctx.fires.length >= MAX_FIRES) return;
-  // Approx every 3 minutes at 30s per tick
-  if (ctx.tick % BACKGROUND_FIRE_INTERVAL_TICKS !== 1) return;
+  // Small independent chance every tick; over hours this scatters new
+  // "root" fires globally while lightning storms + spread still create clusters.
+  if (Math.random() > BACKGROUND_FIRE_SPAWN_CHANCE) return;
 
   const lat = randomLatGlobal();
   const lng = randomLngGlobal();
