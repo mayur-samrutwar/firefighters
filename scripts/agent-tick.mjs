@@ -70,9 +70,15 @@ async function tick() {
   const body = { lat, lng, addFire: shouldAddFire };
 
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    const tickSecret = process.env.TICK_API_SECRET;
+    if (tickSecret) {
+      headers['Authorization'] = `Bearer ${tickSecret}`;
+    }
+    
     const res = await fetch(`${BASE_URL}/api/tick`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     const data = await res.json();

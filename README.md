@@ -62,11 +62,16 @@ Then open [`https://firefighters-six.vercel.app`](https://firefighters-six.verce
 **To see fires**, run the agent in a separate terminal:
 
 ```bash
+# Make sure TICK_API_SECRET is set in your environment
+export TICK_API_SECRET=your-secret-token-here
+
 npm run agent              # if app is on port 3000
 npm run agent:3001         # if app is on port 3001
 ```
 
 The agent POSTs to `/api/tick` every ~30s. For debugging, open [`https://firefighters-six.vercel.app/api/debug`](https://firefighters-six.vercel.app/api/debug) to verify that the server has active fires and agent state.
+
+**Note:** The `/api/tick` endpoint requires authentication via `Authorization: Bearer <TICK_API_SECRET>` header. Make sure to set `TICK_API_SECRET` in your environment variables (`.env.local` for local development, or in your deployment platform's environment settings).
 
 ## Deploy
 
@@ -82,15 +87,33 @@ Instead of running the external `agent-tick.mjs` script, you can use Supabase's 
    - Go to Supabase Dashboard → Database → Extensions
    - Enable `pg_cron` and `pg_net`
 
-2. **Run the cron schema**:
+2. **Generate a secure secret token**:
+   ```bash
+   openssl rand -hex 32
+   ```
+   Save this token - you'll need it for both your environment variables and the database.
+
+3. **Set the secret in your environment** (`.env.local`):
+   ```bash
+   TICK_API_SECRET=your-generated-secret-here
+   ```
+   Make sure to also set this in your deployment platform (Vercel, etc.) as an environment variable.
+
+4. **Run the cron schema**:
    ```bash
    PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/schema-cron.sql
    ```
 
-3. **Set your production API URL**:
+5. **Set your production API URL and secret**:
    ```bash
-   node scripts/manage-supabase-cron.mjs set-url https://your-app.vercel.app
+   # Set API URL
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -c "SELECT set_tick_api_url('https://your-app.vercel.app');"
+   
+   # Set API secret (use the same secret from step 2)
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -c "SELECT set_tick_api_secret('your-generated-secret-here');"
    ```
+
+**Security Note:** The `/api/tick` endpoint is now protected by a secret token. Only requests with the correct `Authorization: Bearer <secret>` header will be accepted. This prevents unauthorized users from manually triggering ticks.
 
 **Manage cron jobs:**
 

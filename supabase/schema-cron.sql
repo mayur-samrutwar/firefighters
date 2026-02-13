@@ -9,16 +9,17 @@
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
--- Configuration table for tick endpoint URL
+-- Configuration table for tick endpoint URL and secret
 CREATE TABLE IF NOT EXISTS game_tick_config (
   id integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   api_url text NOT NULL DEFAULT 'https://firefighters-six.vercel.app/',
+  api_secret text NOT NULL DEFAULT '',
   enabled boolean NOT NULL DEFAULT true,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO game_tick_config (id, api_url, enabled)
-VALUES (1, 'https://firefighters-six.vercel.app/', true)
+INSERT INTO game_tick_config (id, api_url, api_secret, enabled)
+VALUES (1, 'https://firefighters-six.vercel.app/', '', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Function to call the tick endpoint using pg_net
@@ -29,10 +30,13 @@ SECURITY DEFINER
 AS $$
 DECLARE
   api_url text;
+  api_secret text;
   request_id bigint;
+  headers jsonb;
 BEGIN
-  -- Get the API URL from config
-  SELECT game_tick_config.api_url INTO api_url
+  -- Get the API URL and secret from config
+  SELECT game_tick_config.api_url, game_tick_config.api_secret
+  INTO api_url, api_secret
   FROM game_tick_config
   WHERE id = 1 AND enabled = true;
   
@@ -42,13 +46,20 @@ BEGIN
     RETURN;
   END IF;
   
+  -- Build headers with Authorization if secret is configured
+  headers := jsonb_build_object(
+    'Content-Type', 'application/json',
+    'User-Agent', 'Supabase-pg_cron/1.0'
+  );
+  
+  IF api_secret IS NOT NULL AND api_secret != '' THEN
+    headers := headers || jsonb_build_object('Authorization', 'Bearer ' || api_secret);
+  END IF;
+  
   -- Make HTTP POST request using pg_net
   SELECT net.http_post(
     url := api_url || '/api/tick',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'User-Agent', 'Supabase-pg_cron/1.0'
-    ),
+    headers := headers,
     body := '{}'::jsonb
   ) INTO request_id;
   
@@ -58,21 +69,17 @@ BEGIN
 END;
 $$;
 
--- Schedule the cron job to run every minute
+-- Schedule a single cron job to run every 30 seconds
 -- Note: pg_cron uses standard cron format (minute hour day month weekday)
--- For every 30 seconds, we schedule two jobs: one at :00 and one at :30
+-- Since we can't schedule second-level precision, we use one job that:
+--   1. Calls tick immediately
+--   2. Sleeps 30 seconds
+--   3. Calls tick again
+-- This gives us 2 ticks per minute (every 30 seconds)
 SELECT cron.schedule(
-  'game-tick-every-minute',
-  '* * * * *',  -- Every minute at :00 seconds
-  $$SELECT call_tick_endpoint()$$
-);
-
--- Schedule second job to run at :30 seconds (using sleep)
--- This runs every minute but sleeps 30 seconds first
-SELECT cron.schedule(
-  'game-tick-every-minute-30s',
+  'game-tick-every-30s',
   '* * * * *',  -- Every minute
-  $$SELECT pg_sleep(30); SELECT call_tick_endpoint()$$
+  $$SELECT call_tick_endpoint(); SELECT pg_sleep(30); SELECT call_tick_endpoint();$$
 );
 
 -- Note: If your Supabase instance supports pg_cron with second-level precision,
@@ -90,8 +97,26 @@ BEGIN
   WHERE id = 1;
   
   IF NOT FOUND THEN
-    INSERT INTO game_tick_config (id, api_url, enabled)
-    VALUES (1, new_url, true);
+    INSERT INTO game_tick_config (id, api_url, api_secret, enabled)
+    VALUES (1, new_url, '', true);
+  END IF;
+END;
+$$;
+
+-- Helper function to set the API secret
+CREATE OR REPLACE FUNCTION set_tick_api_secret(new_secret text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE game_tick_config
+  SET api_secret = new_secret, updated_at = now()
+  WHERE id = 1;
+  
+  IF NOT FOUND THEN
+    INSERT INTO game_tick_config (id, api_url, api_secret, enabled)
+    VALUES (1, 'https://firefighters-six.vercel.app/', new_secret, true);
   END IF;
 END;
 $$;

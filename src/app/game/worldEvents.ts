@@ -62,8 +62,13 @@ function createEvent(
   const id = generateId();
   switch (type) {
     case 'lightning_storm': {
-      const lat = randomLat();
-      const lng = randomLng();
+      let lat = randomLat();
+      let lng = randomLng();
+      // Avoid exactly (0,0) - shift slightly if we hit it
+      if (Math.abs(lat) < 0.1 && Math.abs(lng) < 0.1) {
+        lat = lat >= 0 ? 1.0 : -1.0;
+        lng = lng >= 0 ? 1.0 : -1.0;
+      }
       return {
         id,
         type,
@@ -76,8 +81,13 @@ function createEvent(
       };
     }
     case 'drought': {
-      const lat = randomLat();
-      const lng = randomLng();
+      let lat = randomLat();
+      let lng = randomLng();
+      // Avoid exactly (0,0) - shift slightly if we hit it
+      if (Math.abs(lat) < 0.1 && Math.abs(lng) < 0.1) {
+        lat = lat >= 0 ? 1.0 : -1.0;
+        lng = lng >= 0 ? 1.0 : -1.0;
+      }
       const radius = 10 + Math.random() * 10;
       return {
         id,
@@ -260,7 +270,19 @@ export async function forceSpawnEvent(
 ): Promise<WorldEvent> {
   const cfg = EVENT_CONFIGS[type];
   const event = createEvent(type, tick, cfg.duration);
-  if (overrides) Object.assign(event, overrides);
+  if (overrides) {
+    Object.assign(event, overrides);
+    // If lat/lng are provided and both are exactly (0,0), shift slightly
+    if (
+      event.lat != null &&
+      event.lng != null &&
+      Math.abs(event.lat) < 0.1 &&
+      Math.abs(event.lng) < 0.1
+    ) {
+      event.lat = event.lat >= 0 ? 1.0 : -1.0;
+      event.lng = event.lng >= 0 ? 1.0 : -1.0;
+    }
+  }
   await dbInsertWorldEvent(event);
   return event;
 }
