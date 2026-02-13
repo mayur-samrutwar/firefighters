@@ -281,11 +281,13 @@ export async function syncExternalAgent(params: {
   searchRadius?: number;
   lat?: number;
   lng?: number;
+  displayName?: string;
 }): Promise<Agent> {
   // Check if agent already exists in DB
   const existing = await dbGetAgentById(params.agentId);
 
   if (existing) {
+    if (params.displayName) existing.displayName = params.displayName;
     if (params.lat !== undefined) existing.lat = params.lat;
     if (params.lng !== undefined) existing.lng = params.lng;
     if (params.route) existing.route = params.route;
@@ -300,6 +302,7 @@ export async function syncExternalAgent(params: {
   const agentData: Agent = {
     id: params.agentId,
     type: params.type,
+    displayName: params.displayName,
     batteryPercentage: 100,
     deployedAt: Date.now(),
     controlMode: 'external',

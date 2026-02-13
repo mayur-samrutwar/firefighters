@@ -7,6 +7,7 @@ type Agent = {
   type: string;
   batteryPercentage: number;
   currentAction?: string | null;
+  displayName?: string;
   lat?: number;
   lng?: number;
 };
@@ -59,9 +60,15 @@ export default function ActiveAgentsPanel({
       return [...agents]
         .map((a) => {
           const scoreEntry = scoreById.get(a.id);
+          const friendlyType = a.type.replace('_', ' ');
+          const baseLabel =
+            a.displayName && a.displayName.trim().length > 0
+              ? `${a.displayName} · ${friendlyType}`
+              : scoreEntry?.label ??
+                `${friendlyType} · ${shortId(a.id)}`;
           return {
             ...a,
-            label: scoreEntry?.label ?? `${a.type.replace('_', ' ')} · ${shortId(a.id)}`,
+            label: baseLabel,
             score: scoreEntry?.score ?? 0,
           };
         })

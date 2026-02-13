@@ -49,6 +49,18 @@ export async function POST(request: Request) {
       type: agentType,
       lat: 0,
       lng: 0,
+      displayName: auth.agent.name,
+    });
+  } else if (auth.agent.name && auth.agent.name !== agent.displayName) {
+    // Keep display name in sync for already-synced agents
+    agent = await syncExternalAgent({
+      agentId: auth.agent.id,
+      type: agent.type,
+      lat: agent.lat,
+      lng: agent.lng,
+      route: agent.route,
+      searchRadius: agent.searchRadius,
+      displayName: auth.agent.name,
     });
   }
 

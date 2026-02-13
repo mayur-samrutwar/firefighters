@@ -32,6 +32,9 @@ export type Agent = {
   deployedAt: number; // timestamp ms
   playerId?: string;
 
+  /** Optional human-friendly name, usually from external agents table */
+  displayName?: string;
+
   controlMode?: 'internal' | 'external';
   pendingExternalAction?: { type: string; [key: string]: unknown } | null;
 

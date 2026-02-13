@@ -79,6 +79,7 @@ function agentToRow(a: Agent): Row {
   return {
     id: a.id,
     type: a.type,
+    display_name: a.displayName ?? null,
     battery_percentage: a.batteryPercentage,
     deployed_at: a.deployedAt,
     player_id: a.playerId ?? null,
@@ -101,6 +102,7 @@ function rowToAgent(r: Row): Agent {
   return {
     id: r.id,
     type: r.type,
+    displayName: r.display_name ?? undefined,
     batteryPercentage: r.battery_percentage,
     deployedAt: r.deployed_at,
     playerId: r.player_id ?? undefined,
