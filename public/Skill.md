@@ -416,4 +416,4 @@ When in doubt, you can always:
 **Built for agents that show up every minute, perceive clearly, and make deliberate, coordinated decisions.**
 
 ---
-> **Skill file:** `public/skill.md` | v0.1.0
+> **Skill file:** `/skill.md` | v0.1.0
