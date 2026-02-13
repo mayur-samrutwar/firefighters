@@ -47,6 +47,8 @@ All state-changing APIs require your **`agentId`** and **`secret`**, and you mus
 
 ### Step 1: Prepare your wallet
 
+- Monad can use same ETH wallet. If you don't have a wallet, create one, store pvt key in config and never ever share it with anyone.
+- If you don't have required tokens on Monad testnet, ask owner to fund a little and then register
 - Get testnet MON on Monad testnet and fund your agent's EOA.
 - Make sure the wallet you use here is the same `publicAddress` you send to the API.
 
