@@ -22,7 +22,10 @@ const __dirname = dirname(__filename);
 // Load env vars
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const API_URL = process.argv[2] || process.env.API_URL || 'http://localhost:3000';
+const API_URL =
+  process.argv[2] ||
+  process.env.API_URL ||
+  'https://www.firefighters-six.vercel.app/';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('❌ Missing Supabase credentials. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
@@ -66,10 +69,10 @@ async function main() {
   // Read the cron schema SQL
   const sqlPath = join(__dirname, '../supabase/schema-cron.sql');
   let sql = readFileSync(sqlPath, 'utf-8');
-  
+
   // Replace placeholder URL with actual API URL
   sql = sql.replace(
-    /'http:\/\/localhost:3000'/g,
+    /'https:\/\/www\.firefighters-six\.vercel\.app\/'/g,
     `'${API_URL}'`
   );
 

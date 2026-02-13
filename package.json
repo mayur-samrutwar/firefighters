@@ -9,7 +9,7 @@
     "lint": "eslint",
     "agent": "node scripts/agent-tick.mjs",
     "agent:once": "RUN_ONCE=1 node scripts/agent-tick.mjs",
-    "agent:3001": "node scripts/agent-tick.mjs http://localhost:3001",
+    "agent:3001": "node scripts/agent-tick.mjs https://www.firefighters-six.vercel.app/",
     "test:supabase": "node scripts/test-supabase-tables.mjs",
     "test:public-agents": "node scripts/test-public-agents-register.mjs",
     "test:public-agents-auth": "node scripts/test-public-agents-auth.mjs",

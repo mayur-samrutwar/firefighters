@@ -13,7 +13,9 @@ const __dirname = dirname(__filename);
 // Load .env.local
 dotenv.config({ path: join(__dirname, '..', '.env.local') });
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
+const BASE_URL =
+  process.env.TEST_BASE_URL ||
+  'https://www.firefighters-six.vercel.app';
 
 let passed = 0;
 let failed = 0;

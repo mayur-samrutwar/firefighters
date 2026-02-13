@@ -6,14 +6,16 @@
  * - Spawns a NEW fire approximately every 3 minutes (every 6th tick)
  *
  * Usage: node scripts/agent-tick.mjs [baseUrl]
- * Default: http://localhost:3000 (if port is busy, use 3001: npm run agent -- http://localhost:3001)
+ * Default: https://www.firefighters-six.vercel.app/ (override with API_URL or CLI arg for local testing)
  *
  * Run: npm run agent
  * Single tick: npm run agent:once
  */
 
 const BASE_URL =
-  process.argv[2] || process.env.API_URL || 'http://localhost:3000';
+  process.argv[2] ||
+  process.env.API_URL ||
+  'https://www.firefighters-six.vercel.app/';
 
 // Precomputed land anchor points (cities, coasts, etc.) used as seeds.
 // We jitter around these so fires can appear over a much wider set of land

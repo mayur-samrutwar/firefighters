@@ -12,13 +12,13 @@ CREATE EXTENSION IF NOT EXISTS pg_net;
 -- Configuration table for tick endpoint URL
 CREATE TABLE IF NOT EXISTS game_tick_config (
   id integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  api_url text NOT NULL DEFAULT 'http://localhost:3000',
+  api_url text NOT NULL DEFAULT 'https://www.firefighters-six.vercel.app/',
   enabled boolean NOT NULL DEFAULT true,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 INSERT INTO game_tick_config (id, api_url, enabled)
-VALUES (1, 'http://localhost:3000', true)
+VALUES (1, 'https://www.firefighters-six.vercel.app/', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Function to call the tick endpoint using pg_net

@@ -22,7 +22,9 @@ import dotenv from 'dotenv';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
 const BASE =
-  process.argv[2] || process.env.API_URL || 'http://localhost:3000';
+  process.argv[2] ||
+  process.env.API_URL ||
+  'https://www.firefighters-six.vercel.app';
 
 let passed = 0;
 let failed = 0;

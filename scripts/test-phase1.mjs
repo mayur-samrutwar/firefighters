@@ -8,11 +8,13 @@
  * Usage:
  *   1. Start the dev server: npm run dev
  *   2. Run: node scripts/test-phase1.mjs [baseUrl]
- *      Default baseUrl: http://localhost:3000
+ *      Default baseUrl: https://www.firefighters-six.vercel.app
  */
 
 const BASE =
-  process.argv[2] || process.env.API_URL || 'http://localhost:3000';
+  process.argv[2] ||
+  process.env.API_URL ||
+  'https://www.firefighters-six.vercel.app';
 
 let passed = 0;
 let failed = 0;

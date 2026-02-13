@@ -3,10 +3,13 @@
  * Deploy 5 agents: 2 satellites, 2 water drones, 1 tanker.
  * Requires dev server: npm run dev
  * Usage: node scripts/deploy-5-agents.mjs [baseUrl]
- * Default baseUrl: http://localhost:3000
+ * Default baseUrl: https://www.firefighters-six.vercel.app
  */
 
-const BASE = process.argv[2] || process.env.API_URL || 'http://localhost:3000';
+const BASE =
+  process.argv[2] ||
+  process.env.API_URL ||
+  'https://www.firefighters-six.vercel.app';
 
 // Routes for satellites (first two from store SATELLITE_ROUTES)
 const SATELLITE_ROUTE_1 = [
