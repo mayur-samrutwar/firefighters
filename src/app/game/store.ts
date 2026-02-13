@@ -105,6 +105,10 @@ const EARTH_MAX_LIFE = 100;
 const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
 const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
 
+// Background fire seeding — approximate behavior of scripts/agent-tick.mjs.
+// With a 30s tick, every 6th tick ≈ every 3 minutes.
+const BACKGROUND_FIRE_INTERVAL_TICKS = 6;
+
 /* ─── Agent type configs ────────────────────────────────── */
 
 const SATELLITE_ROUTES: AgentRoute[] = [
@@ -725,6 +729,15 @@ function randomFireType(): FireType {
   return 'wildfire';
 }
 
+function randomLatGlobal(): number {
+  // Bias away from poles a bit for nicer visuals
+  return -70 + Math.random() * 140; // [-70, 70]
+}
+
+function randomLngGlobal(): number {
+  return -180 + Math.random() * 360;
+}
+
 function addFire(
   ctx: TickContext,
   lat: number,
@@ -743,6 +756,17 @@ function addFire(
   };
   ctx.fires.push(fire);
   return fire;
+}
+
+/** Periodically seed a new fire, used when no external seeding script is running. */
+function maybeSeedBackgroundFire(ctx: TickContext): void {
+  if (ctx.fires.length >= MAX_FIRES) return;
+  // Approx every 3 minutes at 30s per tick
+  if (ctx.tick % BACKGROUND_FIRE_INTERVAL_TICKS !== 1) return;
+
+  const lat = randomLatGlobal();
+  const lng = randomLngGlobal();
+  addFire(ctx, lat, lng);
 }
 
 function growFires(ctx: TickContext): void {
@@ -923,43 +947,46 @@ export async function processTick(
     addFire(ctx, newFire.lat, newFire.lng);
   }
 
-  // 7. World events
+  // 7. Background fire seeding (cron-driven game loop)
+  maybeSeedBackgroundFire(ctx);
+
+  // 8. World events
   applyWorldEvents(ctx);
 
-  // 8. Drain batteries and remove dead agents
+  // 9. Drain batteries and remove dead agents
   drainBatteries(ctx);
 
-  // 9. Prune bulletin posts
+  // 10. Prune bulletin posts
   pruneBulletinCtx(ctx.bulletinPosts);
 
-  // 10. Detection sweep
+  // 11. Detection sweep
   runDetection(ctx);
 
-  // 11. Perception → AI → Action
+  // 12. Perception → AI → Action
   runPerceptionActionLoop(ctx);
 
-  // 12. Move agents
+  // 13. Move agents
   moveAgents(ctx);
 
-  // 13. Extinguish
+  // 14. Extinguish
   runExtinguish(ctx);
 
-  // 14. Refill
+  // 15. Refill
   runRefill(ctx);
 
-  // 15. Recharge
+  // 16. Recharge
   runRecharge(ctx);
 
-  // 16. Prune stale detection pairs
+  // 17. Prune stale detection pairs
   pruneDetectedPairs(ctx);
 
-  // 17. Earth life decay
+  // 18. Earth life decay
   updateEarthLife(ctx);
 
-  // 18. Final cleanup: ensure only alive fires are saved
+  // 19. Final cleanup: ensure only alive fires are saved
   ctx.fires = ctx.fires.filter((f) => isFireAlive(f, ctx.tick));
 
-  // 19. Save everything back to DB
+  // 20. Save everything back to DB
   await saveTickContext(ctx);
 }
 
