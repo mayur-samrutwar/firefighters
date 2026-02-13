@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/.npm
+/.cache
 /.pnp
 .pnp.*
 .yarn/*
@@ -9,6 +11,11 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+
+# hardhat artifacts and cache
+/artifacts
+/cache
+/coverage
 
 # testing
 /coverage
