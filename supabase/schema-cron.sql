@@ -149,3 +149,56 @@ SELECT
   c.jobid::text || '-' || c.jobname as job_key
 FROM cron.job c
 WHERE c.jobname LIKE 'game-tick%';
+
+-- =====================================================
+-- Hourly rewards cron job
+-- =====================================================
+
+-- Function to call the hourly rewards endpoint
+CREATE OR REPLACE FUNCTION call_rewards_endpoint()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  api_url text;
+  api_secret text;
+  request_id bigint;
+  headers jsonb;
+BEGIN
+  -- Get the API URL and secret from config
+  SELECT game_tick_config.api_url, game_tick_config.api_secret
+  INTO api_url, api_secret
+  FROM game_tick_config
+  WHERE id = 1 AND enabled = true;
+  
+  IF api_url IS NULL THEN
+    RAISE NOTICE 'Rewards cron job disabled or API URL not configured';
+    RETURN;
+  END IF;
+
+  headers := jsonb_build_object(
+    'Content-Type', 'application/json',
+    'User-Agent', 'Supabase-pg_cron/1.0'
+  );
+
+  IF api_secret IS NOT NULL AND api_secret != '' THEN
+    headers := headers || jsonb_build_object('Authorization', 'Bearer ' || api_secret);
+  END IF;
+
+  SELECT net.http_post(
+    url := api_url || '/api/cron/rewards',
+    headers := headers,
+    body := '{}'::jsonb
+  ) INTO request_id;
+
+  RAISE NOTICE 'Rewards endpoint request queued (request_id: %)', request_id;
+END;
+$$;
+
+-- Schedule rewards cron to run hourly
+SELECT cron.schedule(
+  'game-rewards-hourly',
+  '0 * * * *', -- at minute 0 of every hour
+  $$SELECT call_rewards_endpoint()$$
+);
