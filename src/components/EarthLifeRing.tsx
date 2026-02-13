@@ -36,7 +36,7 @@ export default function EarthLifeRing() {
   };
 
   return (
-    <div className="pointer-events-auto absolute left-8 bottom-28 z-10">
+    <div className="pointer-events-auto absolute left-8 top-[22rem] z-10 w-72">
       <div className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-lg shadow-slate-200/40 backdrop-blur-sm">
         <div
           className="relative flex h-12 w-12 items-center justify-center rounded-full"
