@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const SKILL_URL = '/Skill.md';
+const SKILL_URL = '/skill.md';
 
 type DeployAgentModalProps = {
   isOpen: boolean;
@@ -37,7 +37,7 @@ export default function DeployAgentModal({ isOpen, onClose }: DeployAgentModalPr
     fetch(SKILL_URL)
       .then((res) => res.text())
       .then(setContent)
-      .catch(() => setContent('# Error\nCould not load Skill.md'));
+      .catch(() => setContent('# Error\nCould not load skill.md'));
   }, [isOpen]);
 
   const skillUrl =
@@ -70,7 +70,7 @@ export default function DeployAgentModal({ isOpen, onClose }: DeployAgentModalPr
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Skill.md';
+    a.download = 'skill.md';
     a.click();
     URL.revokeObjectURL(url);
   };
