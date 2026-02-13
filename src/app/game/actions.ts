@@ -1,14 +1,12 @@
 /**
  * Agent Actions — the possible things an agent can do each tick.
  *
- * Each agent picks ONE action per tick. The action is then executed
- * against the game state. Actions are validated before execution.
+ * executeAction now takes an ActionContext (tick + bulletinPosts array)
+ * so it can post bulletins by pushing to the context list instead of
+ * calling an async DB function.
  */
 
-import type { BulletinPostType } from './bulletin';
-import { postBulletin } from './bulletin';
-import type { Agent } from './store';
-import { getTick } from './store';
+import type { Agent, BulletinPost, BulletinPostType } from './types';
 
 /* ─── Action types ──────────────────────────────────────── */
 
@@ -26,18 +24,25 @@ export type AgentAction =
       targetAgentId?: string;
       message?: string;
     }
+  | { action: 'change_route'; route: [number, number][] }
   | { action: 'idle' };
+
+/* ─── Action context (subset of TickContext) ──────────────── */
+
+export type ActionContext = {
+  tick: number;
+  bulletinPosts: BulletinPost[];
+};
 
 /* ─── Execute an action ─────────────────────────────────── */
 
-/**
- * Applies the chosen action to the agent. Movement, extinguish, and
- * refill are handled by store.ts mechanical loops — here we only
- * handle target-setting, bulletin posting, and action labeling.
- *
- * Returns the action label string for the agent's `currentAction`.
- */
-export function executeAction(agent: Agent, chosen: AgentAction): string | null {
+const DEFAULT_TTL = 10;
+
+export function executeAction(
+  agent: Agent,
+  chosen: AgentAction,
+  ctx: ActionContext
+): string | null {
   switch (chosen.action) {
     case 'move_to': {
       agent.target = { lat: chosen.lat, lng: chosen.lng };
@@ -45,8 +50,6 @@ export function executeAction(agent: Agent, chosen: AgentAction): string | null 
     }
 
     case 'extinguish': {
-      // The actual extinguish logic runs in store's runExtinguish()
-      // We just label the agent's intent
       return 'extinguishing';
     }
 
@@ -59,7 +62,10 @@ export function executeAction(agent: Agent, chosen: AgentAction): string | null 
     }
 
     case 'post_bulletin': {
-      postBulletin(getTick(), {
+      const post: BulletinPost = {
+        id: `blt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        tick: ctx.tick,
+        ttl: DEFAULT_TTL,
         authorId: agent.id,
         postType: chosen.postType,
         lat: chosen.lat,
@@ -67,8 +73,20 @@ export function executeAction(agent: Agent, chosen: AgentAction): string | null 
         fireId: chosen.fireId,
         targetAgentId: chosen.targetAgentId,
         message: chosen.message,
-      });
-      return null; // posting doesn't change movement action
+      };
+      ctx.bulletinPosts.push(post);
+      if (ctx.bulletinPosts.length > 100) {
+        ctx.bulletinPosts.splice(0, ctx.bulletinPosts.length - 100);
+      }
+      return null;
+    }
+
+    case 'change_route': {
+      if (agent.type === 'satellite' && chosen.route.length >= 2) {
+        agent.route = chosen.route;
+        return 'route updated';
+      }
+      return null;
     }
 
     case 'idle': {

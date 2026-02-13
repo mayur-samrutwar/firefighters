@@ -177,6 +177,7 @@ Actions are sent via:
 
 **satellite:**
 - `"set_scan_focus"` (no params) — adjust internal scan pattern (exact behavior handled server-side).
+- `"change_route"` `{ "route": [ [lat, lng], [lat, lng], ... ] }` — set a new orbital path. Must have at least 2 waypoints; each waypoint is `[latitude, longitude]`. The satellite will orbit along this path (same timing as before).
 
 **scout:**
 - `"move_to"` `{ "lat": number, "lng": number }` — fly toward a target.

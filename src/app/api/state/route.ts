@@ -13,16 +13,38 @@ import {
 import { NextResponse } from 'next/server';
 
 export async function GET() {
+  const [
+    tick,
+    fires,
+    agents,
+    updates,
+    bulletin,
+    leaderboard,
+    agentLeaderboard,
+    worldEvents,
+    earthLife,
+  ] = await Promise.all([
+    getTick(),
+    getFires(),
+    getAgents(),
+    getUpdates(),
+    getBulletinPosts(),
+    getLeaderboard(),
+    getAgentLeaderboard(),
+    getActiveWorldEvents(),
+    getEarthLife(),
+  ]);
+
   return NextResponse.json({
-    tick: getTick(),
-    fires: getFires(),
-    agents: getAgents(),
-    updates: getUpdates(),
+    tick,
+    fires,
+    agents,
+    updates,
     waterSources: getWaterSources(),
-    bulletin: getBulletinPosts(),
-    leaderboard: getLeaderboard(), // legacy player leaderboard (may be empty)
-    agentLeaderboard: getAgentLeaderboard(),
-    worldEvents: getActiveWorldEvents(),
-    earthLife: getEarthLife(),
+    bulletin,
+    leaderboard,
+    agentLeaderboard,
+    worldEvents,
+    earthLife,
   });
 }

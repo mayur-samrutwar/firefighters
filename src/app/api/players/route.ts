@@ -5,13 +5,8 @@ import {
 } from '@/app/game/store';
 import { NextResponse } from 'next/server';
 
-/**
- * GET  /api/players — returns leaderboard (sorted by score desc)
- * POST /api/players — register a new player { name }
- */
-
 export async function GET() {
-  return NextResponse.json({ players: getLeaderboard() });
+  return NextResponse.json({ players: await getLeaderboard() });
 }
 
 export async function POST(request: Request) {
@@ -26,7 +21,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const player = registerPlayer(name, getTick());
+    const tick = await getTick();
+    const player = await registerPlayer(name, tick);
     return NextResponse.json({ ok: true, player });
   } catch {
     return NextResponse.json(

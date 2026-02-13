@@ -1,223 +1,165 @@
 /**
- * In-memory game state.
- * Fires grow, spread, and can be extinguished.
- * Agents: satellites orbit, drones move point-to-point.
+ * DB-backed game state.
  *
- * State is stored on globalThis so it survives Next.js dev-mode
- * hot-reloads and module re-evaluations (Turbopack).
+ * NO in-memory globalThis state. All state is persisted in Supabase.
+ *
+ * processTick(): loads all state from DB → runs game logic → saves back.
+ * API getters: read directly from DB.
  */
 
 import { getAgentPositionAtElapsed } from '@/utils/agentPosition';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
-import { executeAction } from './actions';
+import { executeAction, type ActionContext } from './actions';
 import { decideActions } from './agentAI';
 import {
-  getBulletinPosts,
-  pruneBulletin,
-  _resetBulletin,
-  type BulletinPost,
+  pruneBulletinCtx,
+  getBulletinPostsFromList,
 } from './bulletin';
-import { _resetPlayers } from './players';
-import { buildPerception } from './perception';
-import { scoreDetection, scoreExtinguished, scoreRechargeAssist, scoreWatering } from './scoring';
-import { WATER_SOURCES, type WaterSource } from './waterSources';
+import { buildPerceptionFromData } from './perception';
 import {
-  maybeSpawnEvent,
-  getActiveEvents,
-  getAllEvents as getAllWorldEvents,
-  consumeLightningStorms,
-  consumeEquipmentMalfunctions,
-  isDroughtZone,
-  getWindVector,
-  isSolarFlareActive,
-  _resetWorldEvents,
-  type WorldEvent,
+  scoreDetection,
+  scoreExtinguished,
+  scoreRechargeAssist,
+  scoreWatering,
+} from './scoring';
+import { WATER_SOURCES } from './waterSources';
+import {
+  maybeSpawnEventCtx,
+  getActiveEventsFromList,
+  consumeLightningStormsCtx,
+  consumeEquipmentMalfunctionsCtx,
+  isDroughtZoneFromList,
+  getWindVectorFromList,
+  isSolarFlareActiveFromList,
 } from './worldEvents';
+import {
+  loadTickContext,
+  saveTickContext,
+  dbGetTick,
+  dbGetFires,
+  dbGetAgents,
+  dbGetAgentById,
+  dbGetUpdates,
+  dbGetEarthLife,
+  dbGetBulletinPosts,
+  dbGetActiveWorldEvents,
+  dbDeployAgent,
+  dbUpsertAgent,
+  dbCountAgentsByType,
+  dbResetAll,
+  type TickContext,
+} from '@/lib/gameDb';
+import type {
+  Fire,
+  FireType,
+  Agent,
+  AgentType,
+  AgentRoute,
+  UpdateEvent,
+  AgentConfig,
+  BulletinPost,
+} from './types';
 
-/* ─── Types ─────────────────────────────────────────────── */
+/* ─── Re-exports for backward compatibility ──────────────── */
 
-export type FireType = 'wildfire' | 'chemical' | 'flash';
+export type {
+  Fire,
+  FireType,
+  Agent,
+  AgentType,
+  AgentRoute,
+  UpdateEvent,
+} from './types';
+export type { WaterSource } from './waterSources';
+export { WATER_SOURCES } from './waterSources';
+export type { BulletinPost } from './types';
+export type { Player } from './types';
+export type { WorldEvent } from './types';
+export type { AgentScoreEntry } from './types';
 
-export type Fire = {
-  id: string;
-  lat: number;
-  lng: number;
-  bornTick: number;
-  intensity: number; // 1-5
-  fireType: FireType;
-  parentId?: string;
-};
-
-export type AgentRoute = [number, number][]; // [lat, lng] waypoints
-
-export type AgentType =
-  | 'satellite'
-  | 'scout'
-  | 'water_drone'
-  | 'heavy_tanker'
-  | 'supply_drone'
-  | 'coordinator';
-
-export type Agent = {
-  id: string;
-  type: AgentType;
-  batteryPercentage: number;
-  deployedAt: number; // timestamp ms
-  playerId?: string; // owner player ID
-
-  // Control mode: internal (AI-driven) or external (API-driven)
-  controlMode?: 'internal' | 'external';
-  // Pending action from external API (for external agents)
-  // Stored as raw API format: { type: string, ... }
-  pendingExternalAction?: { type: string; [key: string]: unknown } | null;
-
-  // Satellite — orbital movement
-  route?: AgentRoute;
-  searchRadius?: number; // degrees
-
-  // Drones — point-to-point position & movement
-  lat?: number;
-  lng?: number;
-  speed?: number; // degrees per tick
-  target?: { lat: number; lng: number } | null;
-  currentAction?: string | null;
-
-  // Water inventory (water_drone, heavy_tanker)
-  waterLevel?: number;
-  waterCapacity?: number;
-
-  // Charge inventory (supply_drone)
-  chargeCapacity?: number;
-  chargeLevel?: number;
-};
-
-export type UpdateEvent = {
-  id: string;
-  tick: number;
-  type: 'detected' | 'watering' | 'extinguished' | 'world_event';
-  agentId?: string;
-  fireId?: string;
-  lat: number;
-  lng: number;
-  worldEventType?: string;
-  message?: string;
-};
-
-export { type WaterSource, WATER_SOURCES };
-export { type BulletinPost, getBulletinPosts };
-export { type Player, getPlayers, getLeaderboard, registerPlayer, playerExists } from './players';
+// Re-export async functions from sub-modules
+export { getBulletinPosts } from './bulletin';
+export {
+  getPlayers,
+  getLeaderboard,
+  registerPlayer,
+  playerExists,
+} from './players';
 export { getAgentLeaderboard } from './agentScores';
-export { type WorldEvent, getActiveEvents, forceSpawnEvent } from './worldEvents';
+export { getActiveEvents, forceSpawnEvent } from './worldEvents';
 
-export function getActiveWorldEvents(): WorldEvent[] {
-  return getActiveEvents(state.tick);
-}
+/* ─── Constants ─────────────────────────────────────────── */
+
+const MAX_INTENSITY = 5;
+const INTENSITY_GROW_INTERVAL = 2;
+const FLASH_GROW_INTERVAL = 1;
+const BURNOUT_TICKS_AT_MAX = 8;
+const FIRE_MAX_LIFETIME_TICKS = 25;
+
+const SPREAD_RADIUS_DEG = 2.5;
+const SPREAD_CHANCE_INTENSITY_3 = 0.25;
+const SPREAD_CHANCE_INTENSITY_5 = 0.5;
+const MAX_FIRES = 50;
+
+const INTERACTION_RANGE_DEG = 2;
+const CHEMICAL_WATER_MULTIPLIER = 2;
+
+const MAX_EVENTS = 50;
+
+const EARTH_MAX_LIFE = 100;
+const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
+const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
 
 /* ─── Agent type configs ────────────────────────────────── */
 
-type AgentConfig = {
-  drainPerTick: number; // battery drain per tick
-  speed: number; // degrees per tick movement (0 = stationary)
-  waterCapacity: number; // max water units (0 = no water)
-  chargeCapacity: number; // max charge to distribute (0 = no charge)
-  searchRadius: number; // detection radius in degrees (0 = no detection)
-};
-
-// Predefined satellite orbits so multiple satellites follow different routes
-// around the globe instead of clustering on a single track.
 const SATELLITE_ROUTES: AgentRoute[] = [
-  // Equatorial orbit
-  [
-    [0, -180],
-    [0, -90],
-    [0, 0],
-    [0, 90],
-    [0, 180],
-  ],
-  // Polar orbit along Greenwich meridian
-  [
-    [-80, 0],
-    [0, 0],
-    [80, 0],
-  ],
-  // Polar orbit along 90°E
-  [
-    [-80, 90],
-    [0, 90],
-    [80, 90],
-  ],
-  // Mid‑latitude northern band
-  [
-    [45, -180],
-    [45, -90],
-    [45, 0],
-    [45, 90],
-    [45, 180],
-  ],
-  // Mid‑latitude southern band
-  [
-    [-45, -180],
-    [-45, -90],
-    [-45, 0],
-    [-45, 90],
-    [-45, 180],
-  ],
-  // Diagonal NW → SE
-  [
-    [60, -150],
-    [30, -60],
-    [0, 0],
-    [-30, 60],
-    [-60, 150],
-  ],
-  // Diagonal NE → SW
-  [
-    [60, 150],
-    [30, 60],
-    [0, 0],
-    [-30, -60],
-    [-60, -150],
-  ],
+  [[0, -180], [0, -90], [0, 0], [0, 90], [0, 180]],
+  [[-80, 0], [0, 0], [80, 0]],
+  [[-80, 90], [0, 90], [80, 90]],
+  [[45, -180], [45, -90], [45, 0], [45, 90], [45, 180]],
+  [[-45, -180], [-45, -90], [-45, 0], [-45, 90], [-45, 180]],
+  [[60, -150], [30, -60], [0, 0], [-30, 60], [-60, 150]],
+  [[60, 150], [30, 60], [0, 0], [-30, -60], [-60, -150]],
 ];
 
 const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   satellite: {
-    drainPerTick: 100 / 120, // ~1 hour
-    speed: 0, // orbital, not point-to-point
+    drainPerTick: 100 / 120,
+    speed: 0,
     waterCapacity: 0,
     chargeCapacity: 0,
     searchRadius: 5,
   },
   scout: {
-    drainPerTick: 100 / 60, // ~30 min
+    drainPerTick: 100 / 60,
     speed: 5,
     waterCapacity: 0,
     chargeCapacity: 0,
-    searchRadius: 2, // small but accurate sensor
+    searchRadius: 2,
   },
   water_drone: {
-    drainPerTick: 100 / 90, // ~45 min
+    drainPerTick: 100 / 90,
     speed: 3,
     waterCapacity: 3,
     chargeCapacity: 0,
     searchRadius: 0,
   },
   heavy_tanker: {
-    drainPerTick: 100 / 80, // ~40 min
+    drainPerTick: 100 / 80,
     speed: 1.5,
     waterCapacity: 10,
     chargeCapacity: 0,
     searchRadius: 0,
   },
   supply_drone: {
-    drainPerTick: 100 / 100, // ~50 min
+    drainPerTick: 100 / 100,
     speed: 3,
     waterCapacity: 0,
     chargeCapacity: 30,
     searchRadius: 0,
   },
   coordinator: {
-    drainPerTick: 100 / 240, // ~2 hours
+    drainPerTick: 100 / 240,
     speed: 0,
     waterCapacity: 0,
     chargeCapacity: 0,
@@ -225,129 +167,50 @@ const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   },
 };
 
-/* ─── Constants ─────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Async getters — used by API routes (read from DB)
+   ═══════════════════════════════════════════════════════════ */
 
-// Fire intensity & lifecycle
-const MAX_INTENSITY = 5;
-const INTENSITY_GROW_INTERVAL = 2;
-const FLASH_GROW_INTERVAL = 1;
-const BURNOUT_TICKS_AT_MAX = 8;
-const FIRE_MAX_LIFETIME_TICKS = 25;
-
-// Fire spread
-const SPREAD_RADIUS_DEG = 2.5;
-const SPREAD_CHANCE_INTENSITY_3 = 0.25;
-const SPREAD_CHANCE_INTENSITY_5 = 0.5;
-const MAX_FIRES = 50;
-
-// Interactions
-const INTERACTION_RANGE_DEG = 2; // degrees — range for extinguish, refill, recharge
-const CHEMICAL_WATER_MULTIPLIER = 2; // chemical fires need 2x water
-
-// Events
-const MAX_EVENTS = 50;
-
-// Earth life (global health)
-const EARTH_MAX_LIFE = 100;
-// Tuning: with a sustained total fire intensity around typical values,
-// this drains Earth life over several hours with 30s ticks.
-// (Lower = slower decay.) Tuned so that even with many active fires,
-// Earth survives for many hours unless everything burns unchecked.
-const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
-const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
-
-/* ─── State (on globalThis for dev-mode stability) ──────── */
-
-type GameState = {
-  tick: number;
-  fires: Fire[];
-  agents: Agent[];
-  updates: UpdateEvent[];
-  detectedPairs: Set<string>;
-  worldEventEmitted: Set<string>;
-  earthLife: number;
-};
-
-const g = globalThis as unknown as { __fireGameState?: GameState };
-if (!g.__fireGameState) {
-  g.__fireGameState = {
-    tick: 0,
-    fires: [],
-    agents: [],
-    updates: [],
-    detectedPairs: new Set<string>(),
-    worldEventEmitted: new Set<string>(),
-    earthLife: EARTH_MAX_LIFE,
-  };
-}
-// Migration: add worldEventEmitted if missing from existing state
-if (!g.__fireGameState.worldEventEmitted) {
-  g.__fireGameState.worldEventEmitted = new Set<string>();
-}
-if (typeof g.__fireGameState.earthLife !== 'number') {
-  g.__fireGameState.earthLife = EARTH_MAX_LIFE;
+export async function getTick(): Promise<number> {
+  return dbGetTick();
 }
 
-const state = g.__fireGameState;
-const fires = state.fires;
-const agents = state.agents;
-const updates = state.updates;
-const detectedPairs = state.detectedPairs;
-
-/* ─── Getters ───────────────────────────────────────────── */
-
-export function getTick() {
-  return state.tick;
+export async function getFires(): Promise<Fire[]> {
+  return dbGetFires();
 }
 
-export function getFires() {
-  return fires.filter((f) => isFireAlive(f));
+export async function getAgents(): Promise<Agent[]> {
+  const agents = await dbGetAgents();
+  return agents.filter((a) => a.batteryPercentage > 0).map((a) => ({ ...a }));
 }
 
-function isFireAlive(f: Fire): boolean {
-  const age = state.tick - f.bornTick;
-  if (age >= FIRE_MAX_LIFETIME_TICKS) return false;
-  if (f.intensity >= MAX_INTENSITY) {
-    const growInterval =
-      f.fireType === 'flash' ? FLASH_GROW_INTERVAL : INTENSITY_GROW_INTERVAL;
-    const tickReachedMax = (MAX_INTENSITY - 1) * growInterval;
-    const ticksAtMax = age - tickReachedMax;
-    if (ticksAtMax >= BURNOUT_TICKS_AT_MAX) return false;
-  }
-  if (f.intensity <= 0) return false; // extinguished
-  return true;
+export async function getAgentById(
+  agentId: string
+): Promise<Agent | undefined> {
+  return dbGetAgentById(agentId);
 }
 
-export function getAgents() {
-  return agents
-    .filter((a) => a.batteryPercentage > 0)
-    .map((a) => ({ ...a }));
-}
-
-/**
- * Get an agent by ID (including dead agents).
- * Used for external agent action storage.
- */
-export function getAgentById(agentId: string): Agent | undefined {
-  return agents.find((a) => a.id === agentId);
-}
-
-export function getUpdates() {
-  return [...updates];
+export async function getUpdates(): Promise<UpdateEvent[]> {
+  return dbGetUpdates();
 }
 
 export function getWaterSources() {
   return [...WATER_SOURCES];
 }
 
-export function getEarthLife() {
-  return state.earthLife;
+export async function getEarthLife(): Promise<number> {
+  return dbGetEarthLife();
 }
 
-/* ─── Agent position helper ─────────────────────────────── */
+export async function getActiveWorldEvents() {
+  return dbGetActiveWorldEvents();
+}
 
-/** Get current position for any agent type */
-export function getAgentPos(agent: Agent): { lat: number; lng: number } {
+/* ─── Agent position helper (sync — no DB needed) ────────── */
+
+export function getAgentPos(
+  agent: Agent
+): { lat: number; lng: number } {
   if (agent.type === 'satellite' && agent.route) {
     const elapsed = (Date.now() - agent.deployedAt) / 1000;
     return getAgentPositionAtElapsed(agent, elapsed);
@@ -355,24 +218,21 @@ export function getAgentPos(agent: Agent): { lat: number; lng: number } {
   return { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
 }
 
-/* ─── Deploy ────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Async mutations — used by API routes (write to DB)
+   ═══════════════════════════════════════════════════════════ */
 
-export function deployAgent(params: {
+export async function deployAgent(params: {
   type: AgentType;
-  // Satellite
   route?: AgentRoute;
   searchRadius?: number;
-  // Drone starting position
   lat?: number;
   lng?: number;
-  // Overrides
   batteryPercentage?: number;
   waterLevel?: number;
-  // Player ownership
   playerId?: string;
-  // Control mode (default: internal)
   controlMode?: 'internal' | 'external';
-}) {
+}): Promise<Agent> {
   const cfg = AGENT_CONFIGS[params.type];
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -390,7 +250,7 @@ export function deployAgent(params: {
     if (params.route && params.route.length >= 2) {
       agent.route = params.route;
     } else {
-      const existingSatellites = agents.filter((a) => a.type === 'satellite').length;
+      const existingSatellites = await dbCountAgentsByType('satellite');
       const routeIndex = existingSatellites % SATELLITE_ROUTES.length;
       agent.route = SATELLITE_ROUTES[routeIndex];
     }
@@ -405,53 +265,45 @@ export function deployAgent(params: {
     if (params.type === 'scout') {
       agent.searchRadius = cfg.searchRadius;
     }
-
     if (cfg.waterCapacity > 0) {
       agent.waterCapacity = cfg.waterCapacity;
-      agent.waterLevel = params.waterLevel ?? cfg.waterCapacity; // deploy full
+      agent.waterLevel = params.waterLevel ?? cfg.waterCapacity;
     }
-
     if (cfg.chargeCapacity > 0) {
       agent.chargeCapacity = cfg.chargeCapacity;
       agent.chargeLevel = cfg.chargeCapacity;
     }
   }
 
-  agents.push(agent);
+  await dbDeployAgent(agent);
   return agent;
 }
 
-/**
- * Sync an external agent from Supabase into in-memory game state.
- * Creates the agent if it doesn't exist, or updates it if it does.
- * Used when external agents call APIs.
- */
-export function syncExternalAgent(params: {
-  agentId: string; // Supabase agent.id
+export async function syncExternalAgent(params: {
+  agentId: string;
   type: AgentType;
-  // Satellite
   route?: AgentRoute;
   searchRadius?: number;
-  // Drone starting position (defaults to 0,0 if not provided)
   lat?: number;
   lng?: number;
-}): Agent {
-  // Check if agent already exists
-  let agent = agents.find((a) => a.id === params.agentId);
-  
-  if (agent) {
-    // Update existing agent (e.g., if position changed)
-    if (params.lat !== undefined) agent.lat = params.lat;
-    if (params.lng !== undefined) agent.lng = params.lng;
-    if (params.route) agent.route = params.route;
-    if (params.searchRadius !== undefined) agent.searchRadius = params.searchRadius;
-    return agent;
+}): Promise<Agent> {
+  // Check if agent already exists in DB
+  const existing = await dbGetAgentById(params.agentId);
+
+  if (existing) {
+    if (params.lat !== undefined) existing.lat = params.lat;
+    if (params.lng !== undefined) existing.lng = params.lng;
+    if (params.route) existing.route = params.route;
+    if (params.searchRadius !== undefined)
+      existing.searchRadius = params.searchRadius;
+    await dbUpsertAgent(existing);
+    return existing;
   }
 
   // Create new agent
   const cfg = AGENT_CONFIGS[params.type];
   const agentData: Agent = {
-    id: params.agentId, // Use Supabase ID
+    id: params.agentId,
     type: params.type,
     batteryPercentage: 100,
     deployedAt: Date.now(),
@@ -463,7 +315,7 @@ export function syncExternalAgent(params: {
     if (params.route && params.route.length >= 2) {
       agentData.route = params.route;
     } else {
-      const existingSatellites = agents.filter((a) => a.type === 'satellite').length;
+      const existingSatellites = await dbCountAgentsByType('satellite');
       const routeIndex = existingSatellites % SATELLITE_ROUTES.length;
       agentData.route = SATELLITE_ROUTES[routeIndex];
     }
@@ -478,30 +330,47 @@ export function syncExternalAgent(params: {
     if (params.type === 'scout') {
       agentData.searchRadius = cfg.searchRadius;
     }
-
     if (cfg.waterCapacity > 0) {
       agentData.waterCapacity = cfg.waterCapacity;
-      agentData.waterLevel = cfg.waterCapacity; // deploy full
+      agentData.waterLevel = cfg.waterCapacity;
     }
-
     if (cfg.chargeCapacity > 0) {
       agentData.chargeCapacity = cfg.chargeCapacity;
       agentData.chargeLevel = cfg.chargeCapacity;
     }
   }
 
-  agents.push(agentData);
+  await dbDeployAgent(agentData);
   return agentData;
 }
 
-/* ─── Haversine — imported from @/utils/geo ─────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Tick-internal functions — operate on TickContext
+   ═══════════════════════════════════════════════════════════ */
 
-/* ─── Movement ──────────────────────────────────────────── */
+function isFireAlive(f: Fire, tick: number): boolean {
+  const age = tick - f.bornTick;
+  if (age >= FIRE_MAX_LIFETIME_TICKS) return false;
+  if (f.intensity >= MAX_INTENSITY) {
+    const growInterval =
+      f.fireType === 'flash' ? FLASH_GROW_INTERVAL : INTENSITY_GROW_INTERVAL;
+    const tickReachedMax = (MAX_INTENSITY - 1) * growInterval;
+    const ticksAtMax = age - tickReachedMax;
+    if (ticksAtMax >= BURNOUT_TICKS_AT_MAX) return false;
+  }
+  if (f.intensity <= 0) return false;
+  return true;
+}
 
-function moveAgents() {
-  for (const agent of agents) {
+function getAliveFires(ctx: TickContext): Fire[] {
+  return ctx.fires.filter((f) => isFireAlive(f, ctx.tick));
+}
+
+function moveAgents(ctx: TickContext): void {
+  for (const agent of ctx.agents) {
     if (agent.batteryPercentage <= 0) continue;
-    if (agent.type === 'satellite' || agent.type === 'coordinator') continue;
+    if (agent.type === 'satellite' || agent.type === 'coordinator')
+      continue;
     if (!agent.target || agent.speed === undefined) continue;
     if (agent.lat === undefined || agent.lng === undefined) continue;
 
@@ -513,12 +382,10 @@ function moveAgents() {
     );
 
     if (dist <= agent.speed) {
-      // Arrived at target
       agent.lat = agent.target.lat;
       agent.lng = agent.target.lng;
       agent.target = null;
     } else {
-      // Move toward target
       const frac = agent.speed / dist;
       const dLat = agent.target.lat - agent.lat;
       const dLng = agent.target.lng - agent.lng;
@@ -528,19 +395,17 @@ function moveAgents() {
   }
 }
 
-/* ─── Extinguish ────────────────────────────────────────── */
-
-function runExtinguish() {
-  const activeFires = getFires();
+function runExtinguish(ctx: TickContext): void {
+  const activeFires = getAliveFires(ctx);
   if (activeFires.length === 0) return;
 
-  for (const agent of agents) {
+  for (const agent of ctx.agents) {
     if (agent.batteryPercentage <= 0) continue;
-    if (agent.type !== 'water_drone' && agent.type !== 'heavy_tanker') continue;
+    if (agent.type !== 'water_drone' && agent.type !== 'heavy_tanker')
+      continue;
     if (!agent.waterLevel || agent.waterLevel <= 0) continue;
 
     const pos = getAgentPos(agent);
-    // Find nearest fire in range
     let nearestFire: Fire | null = null;
     let nearestDist = Infinity;
     for (const fire of activeFires) {
@@ -554,11 +419,8 @@ function runExtinguish() {
 
     if (!nearestFire) continue;
 
-    // Apply water
     const waterNeeded =
-      nearestFire.fireType === 'chemical'
-        ? CHEMICAL_WATER_MULTIPLIER
-        : 1;
+      nearestFire.fireType === 'chemical' ? CHEMICAL_WATER_MULTIPLIER : 1;
     const waterToUse = Math.min(agent.waterLevel, waterNeeded);
     agent.waterLevel -= waterToUse;
     agent.currentAction = 'extinguishing';
@@ -568,54 +430,56 @@ function runExtinguish() {
         ? Math.floor(waterToUse / CHEMICAL_WATER_MULTIPLIER)
         : waterToUse;
 
-    const newIntensity = Math.max(0, nearestFire.intensity - intensityReduction);
+    const newIntensity = Math.max(
+      0,
+      nearestFire.intensity - intensityReduction
+    );
     const extinguishedAmount = nearestFire.intensity - newIntensity;
     nearestFire.intensity = newIntensity;
 
-    // Emit watering event
-    pushEvent({
+    pushEvent(ctx, {
       type: 'watering',
       agentId: agent.id,
       fireId: nearestFire.id,
       lat: nearestFire.lat,
       lng: nearestFire.lng,
     });
-    scoreWatering(agent, state.tick);
+    scoreWatering(ctx, agent, ctx.tick);
 
-    // Check if extinguished
     if (nearestFire.intensity <= 0) {
-      pushEvent({
+      pushEvent(ctx, {
         type: 'extinguished',
         agentId: agent.id,
         fireId: nearestFire.id,
         lat: nearestFire.lat,
         lng: nearestFire.lng,
       });
-      scoreExtinguished(agent, state.tick);
+      scoreExtinguished(ctx, agent, ctx.tick);
     }
 
-    // Restore a bit of Earth's life based on how much intensity we removed.
     if (extinguishedAmount > 0) {
-      state.earthLife = Math.min(
+      ctx.earthLife = Math.min(
         EARTH_MAX_LIFE,
-        state.earthLife + extinguishedAmount * LIFE_GAIN_PER_INTENSITY_EXTINGUISHED
+        ctx.earthLife +
+          extinguishedAmount * LIFE_GAIN_PER_INTENSITY_EXTINGUISHED
       );
     }
   }
 }
 
-/* ─── Refill ────────────────────────────────────────────── */
-
-function runRefill() {
-  for (const agent of agents) {
+function runRefill(ctx: TickContext): void {
+  for (const agent of ctx.agents) {
     if (agent.batteryPercentage <= 0) continue;
-    if (agent.type !== 'water_drone' && agent.type !== 'heavy_tanker') continue;
-    if (agent.waterLevel === undefined || agent.waterCapacity === undefined)
+    if (agent.type !== 'water_drone' && agent.type !== 'heavy_tanker')
+      continue;
+    if (
+      agent.waterLevel === undefined ||
+      agent.waterCapacity === undefined
+    )
       continue;
     if (agent.waterLevel >= agent.waterCapacity) continue;
 
     const pos = getAgentPos(agent);
-    // Check if near any water source
     const nearSource = WATER_SOURCES.some(
       (ws) =>
         angularDistanceDeg(pos.lat, pos.lng, ws.lat, ws.lng) <=
@@ -629,19 +493,16 @@ function runRefill() {
   }
 }
 
-/* ─── Recharge (supply drone) ───────────────────────────── */
-
-function runRecharge() {
-  for (const agent of agents) {
+function runRecharge(ctx: TickContext): void {
+  for (const agent of ctx.agents) {
     if (agent.batteryPercentage <= 0) continue;
     if (agent.type !== 'supply_drone') continue;
     if (!agent.chargeLevel || agent.chargeLevel <= 0) continue;
 
     const pos = getAgentPos(agent);
-    // Find nearest agent with low battery (< 50%) in range
     let target: Agent | null = null;
     let minDist = Infinity;
-    for (const other of agents) {
+    for (const other of ctx.agents) {
       if (other.id === agent.id) continue;
       if (other.batteryPercentage <= 0 || other.batteryPercentage >= 50)
         continue;
@@ -657,18 +518,17 @@ function runRecharge() {
 
     const transfer = Math.min(agent.chargeLevel, 10);
     agent.chargeLevel -= transfer;
-    target.batteryPercentage = Math.min(100, target.batteryPercentage + transfer);
+    target.batteryPercentage = Math.min(
+      100,
+      target.batteryPercentage + transfer
+    );
     agent.currentAction = 'recharging';
-    scoreRechargeAssist(agent, state.tick);
+    scoreRechargeAssist(ctx, agent, ctx.tick);
   }
 }
 
-/* ─── Perception → AI → Action loop ─────────────────────── */
+/* ─── Perception → AI → Action ───────────────────────────── */
 
-/**
- * Converts external API action format to internal AgentAction format.
- * External actions use `type` field, internal uses `action` field.
- */
 function convertExternalActionToInternal(
   externalAction: { type: string; [key: string]: unknown }
 ): import('./actions').AgentAction | null {
@@ -676,8 +536,14 @@ function convertExternalActionToInternal(
     case 'noop':
       return { action: 'idle' };
     case 'move_to': {
-      const lat = typeof externalAction.lat === 'number' ? externalAction.lat : undefined;
-      const lng = typeof externalAction.lng === 'number' ? externalAction.lng : undefined;
+      const lat =
+        typeof externalAction.lat === 'number'
+          ? externalAction.lat
+          : undefined;
+      const lng =
+        typeof externalAction.lng === 'number'
+          ? externalAction.lng
+          : undefined;
       if (lat === undefined || lng === undefined) return null;
       return { action: 'move_to', lat, lng };
     }
@@ -694,16 +560,32 @@ function convertExternalActionToInternal(
       return { action: 'recharge', targetAgentId };
     }
     case 'set_scan_focus':
-      // For satellites, this is essentially idle (scanning happens automatically)
       return { action: 'idle' };
+    case 'change_route': {
+      const raw = externalAction.route;
+      if (!Array.isArray(raw) || raw.length < 2) return null;
+      const route: [number, number][] = [];
+      for (const p of raw) {
+        if (!Array.isArray(p) || p.length < 2) return null;
+        const lat = typeof p[0] === 'number' ? p[0] : NaN;
+        const lng = typeof p[1] === 'number' ? p[1] : NaN;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        route.push([lat, lng]);
+      }
+      return { action: 'change_route', route };
+    }
     case 'investigate_fire': {
-      // Convert investigate_fire to move_to if coordinates provided
-      const lat = typeof externalAction.lat === 'number' ? externalAction.lat : undefined;
-      const lng = typeof externalAction.lng === 'number' ? externalAction.lng : undefined;
+      const lat =
+        typeof externalAction.lat === 'number'
+          ? externalAction.lat
+          : undefined;
+      const lng =
+        typeof externalAction.lng === 'number'
+          ? externalAction.lng
+          : undefined;
       if (lat !== undefined && lng !== undefined) {
         return { action: 'move_to', lat, lng };
       }
-      // Otherwise, treat as idle
       return { action: 'idle' };
     }
     default:
@@ -711,11 +593,23 @@ function convertExternalActionToInternal(
   }
 }
 
-function runPerceptionActionLoop() {
-  for (const agent of agents) {
+function runPerceptionActionLoop(ctx: TickContext): void {
+  const activeFires = getAliveFires(ctx);
+  const aliveAgents = ctx.agents.filter((a) => a.batteryPercentage > 0);
+  const activeBulletins = getBulletinPostsFromList(ctx.bulletinPosts);
+  const activeWorldEvents = getActiveEventsFromList(
+    ctx.worldEvents,
+    ctx.tick
+  );
+
+  const actionCtx: ActionContext = {
+    tick: ctx.tick,
+    bulletinPosts: ctx.bulletinPosts,
+  };
+
+  for (const agent of ctx.agents) {
     if (agent.batteryPercentage <= 0) continue;
 
-    // Reset action label when agent has no target
     if (!agent.target) {
       agent.currentAction = null;
     }
@@ -723,48 +617,50 @@ function runPerceptionActionLoop() {
     // External agents: use pending action from API
     if (agent.controlMode === 'external') {
       if (agent.pendingExternalAction) {
-        const internalAction = convertExternalActionToInternal(agent.pendingExternalAction);
+        const internalAction = convertExternalActionToInternal(
+          agent.pendingExternalAction
+        );
         if (internalAction) {
-          const label = executeAction(agent, internalAction);
+          const label = executeAction(agent, internalAction, actionCtx);
           if (label) agent.currentAction = label;
         }
-        // Clear pending action after consuming it
         agent.pendingExternalAction = null;
       }
-      // If no pending action, agent remains idle (waiting for next API call)
       continue;
     }
 
-    // Internal agents: use AI decision-making
-    // Build what this agent can see
-    const perception = buildPerception(agent);
+    // Internal agents: AI decision
+    const perception = buildPerceptionFromData(
+      agent,
+      ctx.tick,
+      activeFires,
+      aliveAgents,
+      activeBulletins,
+      activeWorldEvents
+    );
 
-    // AI decides actions
     const actions = decideActions(perception);
-
-    // Execute each action
     for (const act of actions) {
-      const label = executeAction(agent, act);
+      const label = executeAction(agent, act, actionCtx);
       if (label) agent.currentAction = label;
     }
   }
 }
 
-/* ─── Detection sweep (satellites + scouts) ─────────────── */
+/* ─── Detection sweep ────────────────────────────────────── */
 
-function runDetection() {
+function runDetection(ctx: TickContext): void {
   const nowMs = Date.now();
-  const activeFires = getFires();
+  const activeFires = getAliveFires(ctx);
   if (activeFires.length === 0) return;
 
-  const solarFlare = isSolarFlareActive(state.tick);
+  const solarFlare = isSolarFlareActiveFromList(ctx.worldEvents, ctx.tick);
 
-  const detectors = agents.filter(
+  const detectors = ctx.agents.filter(
     (a) =>
       a.batteryPercentage > 0 &&
       (a.type === 'satellite' || a.type === 'scout') &&
       (a.searchRadius ?? 0) > 0 &&
-      // Solar flare blinds satellites but NOT scouts
       !(solarFlare && a.type === 'satellite')
   );
 
@@ -780,19 +676,24 @@ function runDetection() {
     const radius = agent.searchRadius ?? 0;
     for (const fire of activeFires) {
       const pairKey = `${agent.id}::${fire.id}`;
-      if (detectedPairs.has(pairKey)) continue;
+      if (ctx.detectedPairs.has(pairKey)) continue;
 
-      const dist = angularDistanceDeg(pos.lat, pos.lng, fire.lat, fire.lng);
+      const dist = angularDistanceDeg(
+        pos.lat,
+        pos.lng,
+        fire.lat,
+        fire.lng
+      );
       if (dist <= radius) {
-        detectedPairs.add(pairKey);
-        pushEvent({
+        ctx.detectedPairs.add(pairKey);
+        pushEvent(ctx, {
           type: 'detected',
           agentId: agent.id,
           fireId: fire.id,
           lat: fire.lat,
           lng: fire.lng,
         });
-        scoreDetection(agent, state.tick);
+        scoreDetection(ctx, agent, ctx.tick);
       }
     }
   }
@@ -801,39 +702,40 @@ function runDetection() {
 /* ─── Event helpers ─────────────────────────────────────── */
 
 function pushEvent(
+  ctx: TickContext,
   evt: Omit<UpdateEvent, 'id' | 'tick'>
-) {
-  updates.push({
+): void {
+  ctx.updates.push({
     id: `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    tick: state.tick,
+    tick: ctx.tick,
     ...evt,
   });
-  if (updates.length > MAX_EVENTS) {
-    updates.splice(0, updates.length - MAX_EVENTS);
+  if (ctx.updates.length > MAX_EVENTS) {
+    ctx.updates.splice(0, ctx.updates.length - MAX_EVENTS);
   }
 }
 
 /* ─── Cleanup helpers ───────────────────────────────────── */
 
-function drainBatteries() {
-  for (const a of agents) {
+function drainBatteries(ctx: TickContext): void {
+  for (const a of ctx.agents) {
     const cfg = AGENT_CONFIGS[a.type];
     a.batteryPercentage = Math.max(
       0,
       a.batteryPercentage - cfg.drainPerTick
     );
   }
-  const alive = agents.filter((a) => a.batteryPercentage > 0);
-  agents.length = 0;
-  agents.push(...alive);
+  const alive = ctx.agents.filter((a) => a.batteryPercentage > 0);
+  ctx.agents.length = 0;
+  ctx.agents.push(...alive);
 }
 
-function pruneDetectedPairs() {
-  const activeFireIds = new Set(getFires().map((f) => f.id));
-  for (const key of detectedPairs) {
+function pruneDetectedPairs(ctx: TickContext): void {
+  const activeFireIds = new Set(getAliveFires(ctx).map((f) => f.id));
+  for (const key of ctx.detectedPairs) {
     const fireId = key.split('::')[1];
     if (!activeFireIds.has(fireId)) {
-      detectedPairs.delete(key);
+      ctx.detectedPairs.delete(key);
     }
   }
 }
@@ -843,39 +745,48 @@ function pruneDetectedPairs() {
 function randomFireType(): FireType {
   const r = Math.random();
   if (r < 0.15) return 'flash';
-  if (r < 0.30) return 'chemical';
+  if (r < 0.3) return 'chemical';
   return 'wildfire';
 }
 
 function addFire(
+  ctx: TickContext,
   lat: number,
   lng: number,
   opts?: { fireType?: FireType; parentId?: string; intensity?: number }
 ): Fire | null {
-  if (fires.length >= MAX_FIRES) return null;
+  if (ctx.fires.length >= MAX_FIRES) return null;
   const fire: Fire = {
     id: `fire-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     lat,
     lng,
-    bornTick: state.tick,
+    bornTick: ctx.tick,
     intensity: opts?.intensity ?? 1,
     fireType: opts?.fireType ?? randomFireType(),
     parentId: opts?.parentId,
   };
-  fires.push(fire);
+  ctx.fires.push(fire);
   return fire;
 }
 
-function growFires() {
-  for (const fire of fires) {
+function growFires(ctx: TickContext): void {
+  for (const fire of ctx.fires) {
     if (fire.intensity >= MAX_INTENSITY || fire.intensity <= 0) continue;
-    const age = state.tick - fire.bornTick;
+    const age = ctx.tick - fire.bornTick;
 
-    // Drought zones: fires grow at 2x rate (halve the interval)
-    const inDrought = isDroughtZone(state.tick, fire.lat, fire.lng);
+    const inDrought = isDroughtZoneFromList(
+      ctx.worldEvents,
+      ctx.tick,
+      fire.lat,
+      fire.lng
+    );
     const baseInterval =
-      fire.fireType === 'flash' ? FLASH_GROW_INTERVAL : INTENSITY_GROW_INTERVAL;
-    const interval = inDrought ? Math.max(1, Math.floor(baseInterval / 2)) : baseInterval;
+      fire.fireType === 'flash'
+        ? FLASH_GROW_INTERVAL
+        : INTENSITY_GROW_INTERVAL;
+    const interval = inDrought
+      ? Math.max(1, Math.floor(baseInterval / 2))
+      : baseInterval;
 
     const expectedIntensity = Math.min(
       MAX_INTENSITY,
@@ -887,81 +798,74 @@ function growFires() {
   }
 }
 
-function spreadFires() {
-  const candidates = fires.filter(
-    (f) => f.intensity >= 3 && isFireAlive(f)
+function spreadFires(ctx: TickContext): void {
+  const candidates = ctx.fires.filter(
+    (f) => f.intensity >= 3 && isFireAlive(f, ctx.tick)
   );
 
-  const wind = getWindVector(state.tick);
+  const wind = getWindVectorFromList(ctx.worldEvents, ctx.tick);
 
   for (const fire of candidates) {
-    if (fires.length >= MAX_FIRES) break;
+    if (ctx.fires.length >= MAX_FIRES) break;
 
     const chance =
       fire.intensity >= MAX_INTENSITY
         ? SPREAD_CHANCE_INTENSITY_5
         : SPREAD_CHANCE_INTENSITY_3;
-
     if (Math.random() >= chance) continue;
 
     let angle = Math.random() * 2 * Math.PI;
     const dist = (0.5 + Math.random() * 0.5) * SPREAD_RADIUS_DEG;
 
-    // Wind bias: blend the random angle toward wind bearing
     if (wind) {
       const windAngleRad = (wind.bearing * Math.PI) / 180;
-      // Weighted blend: higher windSpeed = stronger bias toward wind direction
-      const blendFactor = Math.min(0.8, (wind.speed - 1) / 3); // 0 to 0.8
+      const blendFactor = Math.min(0.8, (wind.speed - 1) / 3);
       angle = angle * (1 - blendFactor) + windAngleRad * blendFactor;
     }
 
     const newLat = clampLat(fire.lat + dist * Math.cos(angle));
     const newLng = wrapLng(fire.lng + dist * Math.sin(angle));
 
-    const tooClose = fires.some(
+    const tooClose = ctx.fires.some(
       (f) => angularDistanceDeg(f.lat, f.lng, newLat, newLng) < 0.5
     );
     if (tooClose) continue;
 
-    addFire(newLat, newLng, {
+    addFire(ctx, newLat, newLng, {
       fireType: fire.fireType,
       parentId: fire.id,
     });
   }
 }
 
-/* clampLat, wrapLng — imported from @/utils/geo */
-
-/* ─── Earth life ─────────────────────────────────────────── */
-
-function updateEarthLife() {
-  const active = getFires();
+function updateEarthLife(ctx: TickContext): void {
+  const active = getAliveFires(ctx);
   if (active.length === 0) return;
 
-  const totalIntensity = active.reduce((sum, f) => sum + (f.intensity || 0), 0);
+  const totalIntensity = active.reduce(
+    (sum, f) => sum + (f.intensity || 0),
+    0
+  );
   if (totalIntensity <= 0) return;
 
   const loss = totalIntensity * LIFE_LOSS_PER_INTENSITY_PER_TICK;
-  state.earthLife = Math.max(0, state.earthLife - loss);
+  ctx.earthLife = Math.max(0, ctx.earthLife - loss);
 }
 
 /* ─── World Events ─────────────────────────────────────── */
 
-function applyWorldEvents() {
-  // Maybe spawn a new event (probabilistic)
-  maybeSpawnEvent(state.tick);
+function applyWorldEvents(ctx: TickContext): void {
+  maybeSpawnEventCtx(ctx.worldEvents, ctx.tick);
 
-  // Emit update for any active or recently-spawned events not yet announced
-  // Use getAllEvents + filter to catch duration-1 events spawned between ticks
-  const allEvents = getAllWorldEvents();
+  // Emit updates for new events
+  const allEvents = ctx.worldEvents;
   for (const evt of allEvents) {
-    // Event is relevant if it started at or since the previous tick
     const isRelevant =
-      state.tick >= evt.startTick &&
-      state.tick <= evt.startTick + evt.duration;
-    if (isRelevant && !state.worldEventEmitted.has(evt.id)) {
-      state.worldEventEmitted.add(evt.id);
-      pushEvent({
+      ctx.tick >= evt.startTick &&
+      ctx.tick <= evt.startTick + evt.duration;
+    if (isRelevant && !ctx.worldEventEmitted.has(evt.id)) {
+      ctx.worldEventEmitted.add(evt.id);
+      pushEvent(ctx, {
         type: 'world_event',
         lat: evt.lat ?? 0,
         lng: evt.lng ?? 0,
@@ -971,102 +875,120 @@ function applyWorldEvents() {
     }
   }
 
-  // Apply lightning storms → fire clusters
-  const storms = consumeLightningStorms(state.tick);
+  // Lightning storms → fire clusters
+  const storms = consumeLightningStormsCtx(
+    ctx.worldEvents,
+    ctx.appliedInstants,
+    ctx.tick
+  );
   for (const storm of storms) {
     if (storm.lat == null || storm.lng == null) continue;
-    const count = 4 + Math.floor(Math.random() * 5); // 4-8 fires
+    const count = 4 + Math.floor(Math.random() * 5);
     for (let i = 0; i < count; i++) {
       const offsetLat = (Math.random() - 0.5) * (storm.radius ?? 5);
       const offsetLng = (Math.random() - 0.5) * (storm.radius ?? 5);
       addFire(
+        ctx,
         clampLat(storm.lat + offsetLat),
         wrapLng(storm.lng + offsetLng)
       );
     }
   }
 
-  // Apply equipment malfunctions
-  const malfunctions = consumeEquipmentMalfunctions(state.tick);
+  // Equipment malfunctions
+  const malfunctions = consumeEquipmentMalfunctionsCtx(
+    ctx.worldEvents,
+    ctx.appliedInstants,
+    ctx.tick
+  );
   for (const mal of malfunctions) {
-    const alive = agents.filter((a) => a.batteryPercentage > 0);
+    const alive = ctx.agents.filter((a) => a.batteryPercentage > 0);
     if (alive.length === 0) continue;
-    const count = Math.min(alive.length, 1 + Math.floor(Math.random() * 2)); // 1-2 agents
+    const count = Math.min(
+      alive.length,
+      1 + Math.floor(Math.random() * 2)
+    );
     const shuffled = [...alive].sort(() => Math.random() - 0.5);
     const affected = shuffled.slice(0, count);
     mal.affectedAgentIds = affected.map((a) => a.id);
     for (const agent of affected) {
-      agent.batteryPercentage = Math.max(0, agent.batteryPercentage - 20);
+      agent.batteryPercentage = Math.max(
+        0,
+        agent.batteryPercentage - 20
+      );
     }
   }
 }
 
-/* ─── Tick ──────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   processTick — load from DB → run game logic → save to DB
+   ═══════════════════════════════════════════════════════════ */
 
-export function processTick(newFire?: { lat: number; lng: number }) {
-  state.tick += 1;
+export async function processTick(
+  newFire?: { lat: number; lng: number }
+): Promise<void> {
+  // 1. Load all state from DB
+  const ctx = await loadTickContext();
 
-  // 1. Clean dead/extinguished fires
-  const kept = fires.filter((f) => isFireAlive(f));
-  fires.length = 0;
-  fires.push(...kept);
+  // 2. Advance tick
+  ctx.tick += 1;
 
-  // 2. Grow fires (drought zones accelerate growth)
-  growFires();
+  // 3. Clean dead/extinguished fires
+  ctx.fires = ctx.fires.filter((f) => isFireAlive(f, ctx.tick));
 
-  // 3. Spread fires (wind biases direction)
-  spreadFires();
+  // 4. Grow fires
+  growFires(ctx);
 
-  // 4. Add new fire if provided
+  // 5. Spread fires
+  spreadFires(ctx);
+
+  // 6. Add new fire if provided
   if (newFire) {
-    addFire(newFire.lat, newFire.lng);
+    addFire(ctx, newFire.lat, newFire.lng);
   }
 
-  // 5. World events — spawn and apply
-  applyWorldEvents();
+  // 7. World events
+  applyWorldEvents(ctx);
 
-  // 6. Drain batteries and remove dead agents
-  drainBatteries();
+  // 8. Drain batteries and remove dead agents
+  drainBatteries(ctx);
 
-  // 7. Prune expired bulletin posts
-  pruneBulletin();
+  // 9. Prune bulletin posts
+  pruneBulletinCtx(ctx.bulletinPosts);
 
-  // 8. Detection sweep (satellites + scouts; solar flare blinds satellites)
-  runDetection();
+  // 10. Detection sweep
+  runDetection(ctx);
 
-  // 9. Perception → AI decision → Action execution
-  runPerceptionActionLoop();
+  // 11. Perception → AI → Action
+  runPerceptionActionLoop(ctx);
 
-  // 10. Move agents toward targets
-  moveAgents();
+  // 12. Move agents
+  moveAgents(ctx);
 
-  // 11. Extinguish (water drones at fires)
-  runExtinguish();
+  // 13. Extinguish
+  runExtinguish(ctx);
 
-  // 12. Refill (water drones at water sources)
-  runRefill();
+  // 14. Refill
+  runRefill(ctx);
 
-  // 13. Recharge (supply drones near low-battery agents)
-  runRecharge();
+  // 15. Recharge
+  runRecharge(ctx);
 
-  // 14. Prune stale detection pairs
-  pruneDetectedPairs();
+  // 16. Prune stale detection pairs
+  pruneDetectedPairs(ctx);
 
-  // 15. Global Earth life decay (based on surviving fires)
-  updateEarthLife();
+  // 17. Earth life decay
+  updateEarthLife(ctx);
+
+  // 18. Final cleanup: ensure only alive fires are saved
+  ctx.fires = ctx.fires.filter((f) => isFireAlive(f, ctx.tick));
+
+  // 19. Save everything back to DB
+  await saveTickContext(ctx);
 }
 
-/* ─── Testing helpers ───────────────────────────────────── */
+/* ─── Reset (testing) ────────────────────────────────────── */
 
-export function _resetState() {
-  state.tick = 0;
-  fires.length = 0;
-  agents.length = 0;
-  updates.length = 0;
-  detectedPairs.clear();
-  state.worldEventEmitted.clear();
-  state.earthLife = EARTH_MAX_LIFE;
-  _resetBulletin();
-  _resetPlayers();
-  _resetWorldEvents();
+export async function _resetState(): Promise<void> {
+  await dbResetAll();
 }

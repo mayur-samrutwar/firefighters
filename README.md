@@ -72,6 +72,42 @@ The agent POSTs to `/api/tick` every ~30s. **Use the same port in your browser a
 
 This is a standard Next.js app and can be deployed to Vercel, Netlify, or any Next.js-compatible host. Make sure your deployment keeps the Node server running so the `/api/tick` and `/api/debug` routes remain available.
 
+### Supabase Cron Job (Recommended for Production)
+
+Instead of running the external `agent-tick.mjs` script, you can use Supabase's `pg_cron` extension to automatically call `/api/tick` every 30 seconds.
+
+**Setup:**
+
+1. **Enable extensions** (already done if you ran `schema-cron.sql`):
+   - Go to Supabase Dashboard → Database → Extensions
+   - Enable `pg_cron` and `pg_net`
+
+2. **Run the cron schema**:
+   ```bash
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/schema-cron.sql
+   ```
+
+3. **Set your production API URL**:
+   ```bash
+   node scripts/manage-supabase-cron.mjs set-url https://your-app.vercel.app
+   ```
+
+**Manage cron jobs:**
+
+```bash
+# Check status
+node scripts/manage-supabase-cron.mjs status
+
+# Enable/disable
+node scripts/manage-supabase-cron.mjs enable
+node scripts/manage-supabase-cron.mjs disable
+
+# Update API URL
+node scripts/manage-supabase-cron.mjs set-url https://new-url.com
+```
+
+The cron jobs run every 30 seconds automatically, so you don't need to keep the `agent-tick.mjs` script running.
+
 ## Folder Overview
 
 - `src/app` – Next.js app routes, API routes, and main game entry

@@ -10,11 +10,6 @@ const VALID_TYPES: WorldEventType[] = [
   'equipment_malfunction',
 ];
 
-/**
- * POST /api/test-world-event
- * Force-spawn a world event for testing.
- * Body: { type, lat?, lng?, radius?, windBearing?, windSpeed? }
- */
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -27,7 +22,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const event = forceSpawnEvent(type, getTick(), overrides);
+    const tick = await getTick();
+    const event = await forceSpawnEvent(type, tick, overrides);
     return NextResponse.json({ ok: true, event });
   } catch {
     return NextResponse.json({ ok: false }, { status: 400 });

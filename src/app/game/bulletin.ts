@@ -1,91 +1,81 @@
 /**
  * Bulletin Board — shared message board for agent coordination.
  *
- * Agents post messages (fire reports, heading notifications, requests)
- * and other agents read them to make decisions. Posts have a TTL and
- * are pruned automatically each tick.
- *
- * State lives on globalThis alongside the rest of the game state.
+ * Provides both:
+ *  - Pure context-based functions (for tick)
+ *  - Async DB-backed functions (for API routes)
  */
 
-/* ─── Types ─────────────────────────────────────────────── */
+import type { BulletinPost, BulletinPostType } from './types';
+import { dbGetBulletinPosts } from '@/lib/gameDb';
 
-export type BulletinPostType =
-  | 'fire_report'   // "I detected fire X at [lat, lng]"
-  | 'heading_to'    // "I'm heading to fire X"
-  | 'need_water'    // "I need water refill"
-  | 'need_charge'   // "I need battery recharge"
-  | 'task_assign'   // Coordinator assigns task to agent
-  | 'all_clear';    // "Fire X is extinguished"
-
-export type BulletinPost = {
-  id: string;
-  tick: number;         // tick when posted
-  authorId: string;     // agent that posted
-  postType: BulletinPostType;
-  lat?: number;
-  lng?: number;
-  fireId?: string;
-  targetAgentId?: string; // for task_assign — who should act
-  message?: string;
-  ttl: number;          // remaining ticks before expiry
-};
+export type { BulletinPost, BulletinPostType } from './types';
 
 /* ─── Constants ─────────────────────────────────────────── */
 
 const MAX_POSTS = 100;
-const DEFAULT_TTL = 10; // ticks
+const DEFAULT_TTL = 10;
 
-/* ─── State (on globalThis) ─────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Pure context-based functions (for tick)
+   ═══════════════════════════════════════════════════════════ */
 
-type BulletinState = {
-  posts: BulletinPost[];
-};
-
-const g = globalThis as unknown as { __fireBulletinState?: BulletinState };
-if (!g.__fireBulletinState) {
-  g.__fireBulletinState = { posts: [] };
-}
-const bState = g.__fireBulletinState;
-
-/* ─── Getters ───────────────────────────────────────────── */
-
-/** Get all active (non-expired) bulletin posts */
-export function getBulletinPosts(): BulletinPost[] {
-  return bState.posts.filter((p) => p.ttl > 0);
+/** Get active posts from a list */
+export function getBulletinPostsFromList(
+  posts: BulletinPost[]
+): BulletinPost[] {
+  return posts.filter((p) => p.ttl > 0);
 }
 
 /** Get posts assigned to a specific agent */
-export function getAssignmentsForAgent(agentId: string): BulletinPost[] {
-  return bState.posts.filter(
-    (p) => p.postType === 'task_assign' && p.targetAgentId === agentId && p.ttl > 0
+export function getAssignmentsForAgentFromList(
+  posts: BulletinPost[],
+  agentId: string
+): BulletinPost[] {
+  return posts.filter(
+    (p) =>
+      p.postType === 'task_assign' &&
+      p.targetAgentId === agentId &&
+      p.ttl > 0
   );
 }
 
-/** Check if a fire already has a fire_report on the board */
-export function hasFireReport(fireId: string): boolean {
-  return bState.posts.some(
-    (p) => p.postType === 'fire_report' && p.fireId === fireId && p.ttl > 0
+/** Check if a fire already has a fire_report */
+export function hasFireReportFromList(
+  posts: BulletinPost[],
+  fireId: string
+): boolean {
+  return posts.some(
+    (p) =>
+      p.postType === 'fire_report' && p.fireId === fireId && p.ttl > 0
   );
 }
 
-/** Check if an agent is already heading to a fire */
-export function hasHeadingTo(fireId: string): boolean {
-  return bState.posts.some(
-    (p) => p.postType === 'heading_to' && p.fireId === fireId && p.ttl > 0
+/** Check if an agent is heading to a fire */
+export function hasHeadingToFromList(
+  posts: BulletinPost[],
+  fireId: string
+): boolean {
+  return posts.some(
+    (p) =>
+      p.postType === 'heading_to' && p.fireId === fireId && p.ttl > 0
   );
 }
 
-/** Check how many agents are heading to a specific fire */
-export function countHeadingTo(fireId: string): number {
-  return bState.posts.filter(
-    (p) => p.postType === 'heading_to' && p.fireId === fireId && p.ttl > 0
+/** Count how many agents are heading to a specific fire */
+export function countHeadingToFromList(
+  posts: BulletinPost[],
+  fireId: string
+): number {
+  return posts.filter(
+    (p) =>
+      p.postType === 'heading_to' && p.fireId === fireId && p.ttl > 0
   ).length;
 }
 
-/* ─── Mutations ─────────────────────────────────────────── */
-
-export function postBulletin(
+/** Post a new bulletin to the context list */
+export function postBulletinCtx(
+  posts: BulletinPost[],
   tick: number,
   params: Omit<BulletinPost, 'id' | 'tick' | 'ttl'> & { ttl?: number }
 ): BulletinPost {
@@ -95,28 +85,31 @@ export function postBulletin(
     ttl: params.ttl ?? DEFAULT_TTL,
     ...params,
   };
-  bState.posts.push(post);
-
-  // Cap total posts
-  if (bState.posts.length > MAX_POSTS) {
-    bState.posts.splice(0, bState.posts.length - MAX_POSTS);
+  posts.push(post);
+  if (posts.length > MAX_POSTS) {
+    posts.splice(0, posts.length - MAX_POSTS);
   }
-
   return post;
 }
 
-/** Decrement TTL on all posts and remove expired ones */
-export function pruneBulletin() {
-  for (const post of bState.posts) {
+/** Decrement TTL and remove expired posts */
+export function pruneBulletinCtx(posts: BulletinPost[]): void {
+  for (const post of posts) {
     post.ttl -= 1;
   }
-  const alive = bState.posts.filter((p) => p.ttl > 0);
-  bState.posts.length = 0;
-  bState.posts.push(...alive);
+  const alive = posts.filter((p) => p.ttl > 0);
+  posts.length = 0;
+  posts.push(...alive);
 }
 
-/* ─── Reset (testing) ───────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Async DB-backed functions (for API routes)
+   ═══════════════════════════════════════════════════════════ */
 
-export function _resetBulletin() {
-  bState.posts.length = 0;
+export async function getBulletinPosts(): Promise<BulletinPost[]> {
+  return dbGetBulletinPosts();
+}
+
+export async function _resetBulletin(): Promise<void> {
+  // Handled by dbResetAll in gameDb.ts
 }

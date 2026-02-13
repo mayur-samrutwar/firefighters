@@ -1,41 +1,30 @@
 /**
  * Agent-based leaderboard — scores per agent (not per player).
  *
- * This sits alongside the existing player scoring so that:
- * - Agents without a playerId can still compete.
- * - Existing player-based tests and APIs continue to work.
+ * Provides both:
+ *  - Pure context-based functions (for tick)
+ *  - Async DB-backed functions (for API routes)
  */
 
-import type { AgentType } from './store';
+import type { AgentType, AgentScoreEntry } from './types';
+import { dbGetAgentScores } from '@/lib/gameDb';
 
-export type AgentScoreEntry = {
-  agentId: string;
-  label: string;
-  type: AgentType;
-  score: number;
-  firstTick: number;
-};
+export type { AgentScoreEntry } from './types';
 
-type AgentScoreState = {
-  scores: Map<string, AgentScoreEntry>;
-};
+/* ═══════════════════════════════════════════════════════════
+   Pure context-based functions (for tick)
+   ═══════════════════════════════════════════════════════════ */
 
-const g = globalThis as unknown as { __fireAgentScoreState?: AgentScoreState };
-if (!g.__fireAgentScoreState) {
-  g.__fireAgentScoreState = { scores: new Map() };
-}
-const aState = g.__fireAgentScoreState;
+type AgentLike = { id: string; type: AgentType; deployedAt: number };
 
-// Minimal view of Agent we care about (to avoid runtime import cycles)
-type AgentLike = {
-  id: string;
-  type: AgentType;
-  deployedAt: number;
-};
-
-export function awardAgentPoints(agent: AgentLike, points: number, tick: number) {
+export function awardAgentPointsCtx(
+  scores: Map<string, AgentScoreEntry>,
+  agent: AgentLike,
+  points: number,
+  tick: number
+): void {
   if (points <= 0) return;
-  let entry = aState.scores.get(agent.id);
+  let entry = scores.get(agent.id);
   if (!entry) {
     const tail = agent.id.split('-').pop() ?? agent.id.slice(-5);
     const label = `${agent.type.replace('_', ' ')} · ${tail.slice(0, 5)}`;
@@ -46,18 +35,22 @@ export function awardAgentPoints(agent: AgentLike, points: number, tick: number)
       score: 0,
       firstTick: tick,
     };
-    aState.scores.set(agent.id, entry);
+    scores.set(agent.id, entry);
   }
   entry.score += points;
 }
 
-export function getAgentLeaderboard(): AgentScoreEntry[] {
-  return Array.from(aState.scores.values()).sort(
+/* ═══════════════════════════════════════════════════════════
+   Async DB-backed functions (for API routes)
+   ═══════════════════════════════════════════════════════════ */
+
+export async function getAgentLeaderboard(): Promise<AgentScoreEntry[]> {
+  const scores = await dbGetAgentScores();
+  return scores.sort(
     (a, b) => b.score - a.score || a.firstTick - b.firstTick
   );
 }
 
-export function _resetAgentScores() {
-  aState.scores.clear();
+export async function _resetAgentScores(): Promise<void> {
+  // Handled by dbResetAll in gameDb.ts
 }
-

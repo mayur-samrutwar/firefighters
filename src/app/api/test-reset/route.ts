@@ -6,6 +6,6 @@ import { NextResponse } from 'next/server';
  * Resets all game state. Only for testing.
  */
 export async function POST() {
-  _resetState();
+  await _resetState();
   return NextResponse.json({ ok: true, message: 'State reset' });
 }

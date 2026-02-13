@@ -59,9 +59,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Optional player ownership — validate if provided
+    // Optional player ownership
     if (playerId !== undefined && typeof playerId === 'string' && playerId.length > 0) {
-      if (!playerExists(playerId)) {
+      if (!(await playerExists(playerId))) {
         return NextResponse.json(
           { ok: false, error: 'Player not found. Register first via POST /api/players' },
           { status: 400 }
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
         ? Math.max(0, Math.min(100, batteryPercentage))
         : 100;
 
-    const agent = deployAgent({
+    const agent = await deployAgent({
       type: type as AgentType,
       route: type === 'satellite' ? (route as [number, number][]) : undefined,
       searchRadius:

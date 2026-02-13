@@ -1,74 +1,70 @@
 /**
  * Player management — identity and score tracking.
  *
- * Players register with a name, deploy agents tied to their ID,
- * and earn points when their agents contribute to firefighting.
- *
- * State lives on globalThis alongside other game state.
+ * Provides both:
+ *  - Pure context-based functions (for tick)
+ *  - Async DB-backed functions (for API routes)
  */
 
-/* ─── Types ─────────────────────────────────────────────── */
+import type { Player } from './types';
+import {
+  dbGetPlayers,
+  dbPlayerExists,
+  dbRegisterPlayer,
+  dbGetTick,
+} from '@/lib/gameDb';
 
-export type Player = {
-  id: string;
-  name: string;
-  score: number;
-  joinedTick: number;
-};
+export type { Player } from './types';
 
-/* ─── State (on globalThis) ─────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Pure context-based functions (for tick)
+   ═══════════════════════════════════════════════════════════ */
 
-type PlayerState = {
-  players: Player[];
-};
-
-const g = globalThis as unknown as { __firePlayerState?: PlayerState };
-if (!g.__firePlayerState) {
-  g.__firePlayerState = { players: [] };
-}
-const pState = g.__firePlayerState;
-
-/* ─── Getters ───────────────────────────────────────────── */
-
-export function getPlayers(): Player[] {
-  return pState.players.map((p) => ({ ...p }));
-}
-
-export function getPlayer(playerId: string): Player | undefined {
-  return pState.players.find((p) => p.id === playerId);
-}
-
-export function getLeaderboard(): Player[] {
-  return [...pState.players].sort((a, b) => b.score - a.score);
-}
-
-export function playerExists(playerId: string): boolean {
-  return pState.players.some((p) => p.id === playerId);
-}
-
-/* ─── Mutations ─────────────────────────────────────────── */
-
-export function registerPlayer(name: string, tick: number): Player {
-  const id = `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const player: Player = {
-    id,
-    name: name.trim().slice(0, 24), // max 24 chars
-    score: 0,
-    joinedTick: tick,
-  };
-  pState.players.push(player);
-  return player;
-}
-
-export function addScore(playerId: string, points: number): void {
-  const player = pState.players.find((p) => p.id === playerId);
+/** Add score to a player in the context list */
+export function addScoreCtx(
+  players: Player[],
+  playerId: string,
+  points: number
+): void {
+  const player = players.find((p) => p.id === playerId);
   if (player) {
     player.score += points;
   }
 }
 
-/* ─── Reset (testing) ───────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Async DB-backed functions (for API routes)
+   ═══════════════════════════════════════════════════════════ */
 
-export function _resetPlayers() {
-  pState.players.length = 0;
+export async function getPlayers(): Promise<Player[]> {
+  return dbGetPlayers();
+}
+
+export async function getLeaderboard(): Promise<Player[]> {
+  const players = await dbGetPlayers();
+  return players.sort((a, b) => b.score - a.score);
+}
+
+export async function registerPlayer(
+  name: string,
+  tick?: number
+): Promise<Player> {
+  const t = tick ?? (await dbGetTick());
+  const id = `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const player: Player = {
+    id,
+    name: name.trim().slice(0, 24),
+    score: 0,
+    joinedTick: t,
+  };
+  await dbRegisterPlayer(player);
+  return player;
+}
+
+export async function playerExists(playerId: string): Promise<boolean> {
+  return dbPlayerExists(playerId);
+}
+
+export async function _resetPlayers(): Promise<void> {
+  // Handled by dbResetAll in gameDb.ts
 }

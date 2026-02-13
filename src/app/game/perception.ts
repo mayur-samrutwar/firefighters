@@ -1,15 +1,27 @@
 /**
  * Perception Packet — the "view of the world" each agent receives each tick.
  *
- * Built fresh every tick for every agent. Contains only information
- * the agent type would realistically have access to.
+ * buildPerceptionFromData: pure function, used during tick with context data
+ * buildPerception: async wrapper, loads from DB for API routes
  */
 
 import { angularDistanceDeg } from '@/utils/geo';
-import type { BulletinPost } from './bulletin';
-import { getBulletinPosts, getAssignmentsForAgent } from './bulletin';
-import type { Agent, AgentType, Fire, WorldEvent } from './store';
-import { getFires, getAgents, getAgentPos, getTick, getActiveWorldEvents } from './store';
+import { getAgentPositionAtElapsed } from '@/utils/agentPosition';
+import type {
+  Agent,
+  AgentType,
+  BulletinPost,
+  Fire,
+  WorldEvent,
+} from './types';
+import {
+  dbGetFires,
+  dbGetAgents,
+  dbGetBulletinPosts,
+  dbGetActiveWorldEvents,
+  dbGetTick,
+} from '@/lib/gameDb';
+import { getAssignmentsForAgentFromList } from './bulletin';
 
 /* ─── Types ─────────────────────────────────────────────── */
 
@@ -35,7 +47,7 @@ export type NearbyAgentInfo = {
   batteryPercentage: number;
   waterLevel?: number;
   currentAction?: string | null;
-  distance: number; // degrees from self
+  distance: number;
 };
 
 export type PerceptionPacket = {
@@ -51,27 +63,44 @@ export type PerceptionPacket = {
 /* ─── Awareness ranges per agent type (degrees) ─────────── */
 
 const AWARENESS_RANGE: Record<AgentType, number> = {
-  satellite: 0,       // uses searchRadius instead (handled separately)
-  scout: 2,           // same as searchRadius
-  water_drone: 15,    // general awareness
+  satellite: 0,
+  scout: 2,
+  water_drone: 15,
   heavy_tanker: 15,
   supply_drone: 15,
-  coordinator: 180,   // global view (reads everything)
+  coordinator: 180,
 };
 
-const AGENT_VISIBILITY_RANGE = 10; // degrees — can see other agents within this
+const AGENT_VISIBILITY_RANGE = 10;
 
-/* ─── Build perception for one agent ────────────────────── */
+/* ─── Agent position (stateless helper) ──────────────────── */
 
-export function buildPerception(agent: Agent): PerceptionPacket {
-  const tick = getTick();
-  const pos = getAgentPos(agent);
-  const allFires = getFires();
-  const allAgents = getAgents();
-  const allBulletins = getBulletinPosts();
-  const assignments = getAssignmentsForAgent(agent.id);
+function agentPos(agent: Agent): { lat: number; lng: number } {
+  if (agent.type === 'satellite' && agent.route) {
+    const elapsed = (Date.now() - agent.deployedAt) / 1000;
+    return getAgentPositionAtElapsed(agent, elapsed);
+  }
+  return { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
+}
 
-  // Self info
+/* ═══════════════════════════════════════════════════════════
+   Pure function — used during tick with context data
+   ═══════════════════════════════════════════════════════════ */
+
+export function buildPerceptionFromData(
+  agent: Agent,
+  tick: number,
+  allFires: Fire[],
+  allAgents: Agent[],
+  allBulletins: BulletinPost[],
+  worldEvents: WorldEvent[]
+): PerceptionPacket {
+  const pos = agentPos(agent);
+  const assignments = getAssignmentsForAgentFromList(
+    allBulletins,
+    agent.id
+  );
+
   const self: AgentSelfInfo = {
     id: agent.id,
     type: agent.type,
@@ -86,7 +115,6 @@ export function buildPerception(agent: Agent): PerceptionPacket {
     hasTarget: !!agent.target,
   };
 
-  // Nearby fires
   const awarenessRange =
     agent.type === 'satellite'
       ? agent.searchRadius ?? 5
@@ -100,11 +128,10 @@ export function buildPerception(agent: Agent): PerceptionPacket {
     .filter((f) => f.distance <= awarenessRange)
     .sort((a, b) => a.distance - b.distance);
 
-  // Nearby agents
   const nearbyAgents = allAgents
     .filter((a) => a.id !== agent.id)
     .map((a) => {
-      const aPos = getAgentPos(a);
+      const aPos = agentPos(a);
       return {
         id: a.id,
         type: a.type,
@@ -124,8 +151,34 @@ export function buildPerception(agent: Agent): PerceptionPacket {
     self,
     nearbyFires,
     nearbyAgents,
-    bulletin: allBulletins,
+    bulletin: allBulletins.filter((p) => p.ttl > 0),
     assignedTasks: assignments,
-    activeWorldEvents: getActiveWorldEvents(),
+    activeWorldEvents: worldEvents,
   };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Async wrapper — used by API routes (loads from DB)
+   ═══════════════════════════════════════════════════════════ */
+
+export async function buildPerception(
+  agent: Agent
+): Promise<PerceptionPacket> {
+  const [tick, fires, agents, bulletins, worldEvents] = await Promise.all(
+    [
+      dbGetTick(),
+      dbGetFires(),
+      dbGetAgents(),
+      dbGetBulletinPosts(),
+      dbGetActiveWorldEvents(),
+    ]
+  );
+  return buildPerceptionFromData(
+    agent,
+    tick,
+    fires,
+    agents,
+    bulletins,
+    worldEvents
+  );
 }

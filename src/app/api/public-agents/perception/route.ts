@@ -1,28 +1,15 @@
 import { NextResponse } from 'next/server';
 import { authenticateExternalAgent } from '@/lib/publicAgentsAuth';
-import {
-  getAgents,
-  getFires,
-  getBulletinPosts,
-  getActiveWorldEvents,
-  getTick,
-  getEarthLife,
-} from '@/app/game/store';
+import { getAgentById, syncExternalAgent } from '@/app/game/store';
 import { buildPerception } from '@/app/game/perception';
 
-type PerceptionBody = {
-  agentId?: string;
-  secret?: string;
-};
-
 export async function POST(request: Request) {
-  let body: PerceptionBody;
-
+  let body: { agentId?: string; secret?: string };
   try {
-    body = (await request.json()) as PerceptionBody;
+    body = await request.json();
   } catch {
     return NextResponse.json(
-      { ok: false, error: 'Invalid JSON body' },
+      { ok: false, error: 'Invalid JSON' },
       { status: 400 }
     );
   }
@@ -40,66 +27,31 @@ export async function POST(request: Request) {
     );
   }
 
-  // Map Supabase profile -> in-game AgentType where applicable
-  const profile = auth.agent.profile as
-    | 'satellite'
-    | 'scout'
-    | 'water_drone'
-    | 'heavy_tanker'
-    | 'supply_drone';
+  let agent = await getAgentById(auth.agent.id);
 
-  const tick = getTick();
-
-  // Try to find a live in-memory agent with the same type to reuse our
-  // internal perception packet shape. For now, external agents are not yet
-  // materialized into the simulation, so we fall back to a global snapshot.
-  const liveAgents = getAgents();
-
-  const liveAgent =
-    liveAgents.find((a) => a.id === agentId) ??
-    liveAgents.find((a) => a.type === profile);
-
-  if (liveAgent) {
-    const perception = buildPerception(liveAgent);
-    return NextResponse.json({
-      ok: true,
-      mode: 'approximate_internal',
-      tick,
-      agent: {
-        id: auth.agent.id,
-        name: auth.agent.name,
-        profile: auth.agent.profile,
-        ownerPublicAddress: auth.owner.public_address,
-      },
-      perception,
+  if (!agent) {
+    const profileMap: Record<string, 'satellite' | 'scout' | 'water_drone' | 'heavy_tanker' | 'supply_drone'> = {
+      satellite: 'satellite',
+      scout: 'scout',
+      water_drone: 'water_drone',
+      heavy_tanker: 'heavy_tanker',
+      supply_drone: 'supply_drone',
+    };
+    const agentType = profileMap[auth.agent.profile];
+    if (!agentType) {
+      return NextResponse.json(
+        { ok: false, error: `Unknown profile: ${auth.agent.profile}` },
+        { status: 500 }
+      );
+    }
+    agent = await syncExternalAgent({
+      agentId: auth.agent.id,
+      type: agentType,
+      lat: 0,
+      lng: 0,
     });
   }
 
-  // Fallback: global snapshot-style perception (no positional filtering)
-  const fires = getFires();
-  const agents = getAgents();
-  const bulletin = getBulletinPosts();
-  const worldEvents = getActiveWorldEvents();
-  const earthLife = getEarthLife();
-
-  return NextResponse.json({
-    ok: true,
-    mode: 'global',
-    tick,
-    agent: {
-      id: auth.agent.id,
-      name: auth.agent.name,
-      profile: auth.agent.profile,
-      ownerPublicAddress: auth.owner.public_address,
-    },
-    perception: {
-      tick,
-      earthLife,
-      fires,
-      agents,
-      bulletin,
-      activeWorldEvents: worldEvents,
-    },
-  });
+  const perception = await buildPerception(agent);
+  return NextResponse.json({ ok: true, perception });
 }
-

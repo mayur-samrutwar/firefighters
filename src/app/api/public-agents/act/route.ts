@@ -13,7 +13,7 @@ type ActBody = {
 };
 
 const PROFILE_ACTIONS: Record<string, string[]> = {
-  satellite: ['noop', 'set_scan_focus'],
+  satellite: ['noop', 'set_scan_focus', 'change_route'],
   scout: ['noop', 'move_to', 'investigate_fire'],
   water_drone: ['noop', 'move_to', 'water_fire', 'refill'],
   heavy_tanker: ['noop', 'move_to', 'water_fire', 'refill'],
@@ -128,10 +128,9 @@ export async function POST(request: Request) {
     );
   }
 
-  // Sync external agent into in-memory state if not already present
-  let agent = getAgentById(auth.agent.id);
+  // Sync external agent into game state (DB) if not already present
+  let agent = await getAgentById(auth.agent.id);
   if (!agent) {
-    // Map Supabase profile to AgentType
     const profileMap: Record<string, 'satellite' | 'scout' | 'water_drone' | 'heavy_tanker' | 'supply_drone'> = {
       satellite: 'satellite',
       scout: 'scout',
@@ -146,17 +145,18 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
-    agent = syncExternalAgent({
+    agent = await syncExternalAgent({
       agentId: auth.agent.id,
       type: agentType,
-      lat: 0, // Default starting position
+      lat: 0,
       lng: 0,
     });
   }
 
-  // Store the action in the agent's pendingExternalAction
-  // Include all fields from the action object (lat, lng, targetAgentId, etc.)
+  // Store the action as pendingExternalAction in DB via upsert
   agent.pendingExternalAction = action as { type: string; [key: string]: unknown };
+  const { dbUpsertAgent } = await import('@/lib/gameDb');
+  await dbUpsertAgent(agent);
 
   return NextResponse.json({
     ok: true,
@@ -170,4 +170,3 @@ export async function POST(request: Request) {
     },
   });
 }
-
