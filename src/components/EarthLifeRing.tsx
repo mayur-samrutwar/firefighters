@@ -1,9 +1,8 @@
 'use client';
 
-import { useGameState } from '@/contexts/GameStateContext';
-
 export default function EarthLifeRing() {
-  const { earthLife: life, tick } = useGameState();
+  const life = 100;
+  const tick = 0;
   const pct = Math.max(0, Math.min(100, life));
   const angle = (pct / 100) * 360;
   const color =

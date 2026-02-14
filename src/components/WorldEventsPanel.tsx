@@ -1,20 +1,5 @@
 'use client';
 
-import { useGameState } from '@/contexts/GameStateContext';
-
-type WorldEvent = {
-  id: string;
-  type: string;
-  startTick: number;
-  duration: number;
-  lat?: number;
-  lng?: number;
-  radius?: number;
-  windBearing?: number;
-  windSpeed?: number;
-  message: string;
-};
-
 const EVENT_CONFIG: Record<
   string,
   { label: string; color: string; icon: string; bg: string }
@@ -52,7 +37,8 @@ const EVENT_CONFIG: Record<
 };
 
 export default function WorldEventsPanel() {
-  const { worldEvents: events, tick } = useGameState();
+  const events: Array<{ id: string; type: string; startTick: number; duration: number; message: string }> = [];
+  const tick = 0;
 
   if (events.length === 0) return null;
 

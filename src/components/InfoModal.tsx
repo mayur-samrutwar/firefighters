@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Image from 'next/image';
 
 type InfoModalProps = {
   isOpen: boolean;
@@ -96,7 +97,7 @@ export default function InfoModal({ isOpen, onClose }: InfoModalProps) {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-3">
-                  <img src="/satellite.png" alt="" className="h-4 w-4" />
+                  <Image src="/satellite.png" alt="" width={16} height={16} className="h-4 w-4" />
                   <div>
                     <p className="font-medium text-slate-800">Satellite</p>
                     <p className="text-[11px] text-slate-500">
@@ -105,7 +106,7 @@ export default function InfoModal({ isOpen, onClose }: InfoModalProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <img src="/scout.png" alt="" className="h-4 w-4" />
+                  <Image src="/scout.png" alt="" width={16} height={16} className="h-4 w-4" />
                   <div>
                     <p className="font-medium text-slate-800">Scout drone</p>
                     <p className="text-[11px] text-slate-500">
@@ -114,7 +115,7 @@ export default function InfoModal({ isOpen, onClose }: InfoModalProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <img src="/watering-drone.png" alt="" className="h-4 w-4" />
+                  <Image src="/watering-drone.png" alt="" width={16} height={16} className="h-4 w-4" />
                   <div>
                     <p className="font-medium text-slate-800">Water drone</p>
                     <p className="text-[11px] text-slate-500">
@@ -125,7 +126,7 @@ export default function InfoModal({ isOpen, onClose }: InfoModalProps) {
               </div>
               <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-3">
-                  <img src="/tanker.png" alt="" className="h-4 w-4" />
+                  <Image src="/tanker.png" alt="" width={16} height={16} className="h-4 w-4" />
                   <div>
                     <p className="font-medium text-slate-800">Heavy tanker</p>
                     <p className="text-[11px] text-slate-500">

@@ -5,7 +5,11 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Override default ignores of eslint-config-next.
+  // GlobeViewer reads refs in useMemo to feed Three/globe state; refs are updated in effects.
+  {
+    files: ['src/components/GlobeViewer.tsx'],
+    rules: { 'react-hooks/refs': 'off' },
+  },
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",

@@ -4,15 +4,39 @@ import { useRef, useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import type { GlobeMethods } from 'react-globe.gl';
-import type { Agent, AgentType } from '@/app/game/store';
-import { getAgentPosition } from '@/utils/agentPosition';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
-import { useGameState } from '@/contexts/GameStateContext';
+
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const GLOBE_RADIUS = 100;
 const OBJECT_ALTITUDE = 0.015;
-const TICK_SECONDS = 10; // real-time seconds per simulation tick
+const TICK_SECONDS = 10;
+
+type AgentType =
+  | 'satellite'
+  | 'scout'
+  | 'water_drone'
+  | 'heavy_tanker'
+  | 'supply_drone'
+  | 'coordinator';
+
+type Agent = {
+  id: string;
+  type: AgentType;
+  lat?: number;
+  lng?: number;
+  batteryPercentage?: number;
+  displayName?: string;
+  searchRadius?: number;
+  waterLevel?: number;
+  waterCapacity?: number;
+  chargeLevel?: number;
+  chargeCapacity?: number;
+  currentAction?: string | null;
+  target?: { lat: number; lng: number } | null;
+  speed?: number;
+  route?: [number, number][];
+};
 
 function searchRadiusToGlobeUnits(deg: number): number {
   const r = GLOBE_RADIUS * (1 + OBJECT_ALTITUDE);
@@ -28,8 +52,6 @@ type Fire = {
   intensity: number;
   fireType?: string;
 };
-
-type WaterSource = { id: string; lat: number; lng: number; name: string };
 
 type GlobeObject =
   | { type: 'fire'; id: string; lat: number; lng: number; intensity: number }
@@ -75,38 +97,23 @@ export default function GlobeViewer({
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
-  const [tick, setTick] = useState(0);
-  const gameState = useGameState();
-  const fires = gameState.fires;
-  const agents = gameState.agents as Agent[];
-  const waterSources = gameState.waterSources;
-  const serverTick = gameState.tick;
-  const stateTimestamp = gameState.lastFetchedAt;
+  const [, setTick] = useState(0);
 
-  // Smooth display positions: lerp toward server position every frame so we don't
-  // snap when state updates every 5s. Catch-up factor 0.12 ≈ smooth within ~1s.
+  const fires = useMemo<Fire[]>(() => [], []);
+  const agents = useMemo<Agent[]>(() => [], []);
+  const waterSources = useMemo<{ id: string; lat: number; lng: number; name: string }[]>(() => [], []);
+  const stateTimestamp = 0;
+  const lastTimeRef = useRef(0);
+
   const displayPosRef = useRef<Record<string, { lat: number; lng: number }>>({});
-  const LERP_FACTOR = 0.12;
 
   useEffect(() => {
     const id = setInterval(() => {
+      lastTimeRef.current = Date.now();
       setTick((t) => t + 1);
-      // Update display positions toward ideal (server-interpolated) positions
-      agents.forEach((a) => {
-        const ideal = getRenderedAgentPositionForLerp(a, stateTimestamp);
-        const current = displayPosRef.current[a.id] ?? ideal;
-        const lat = clampLat(current.lat + (ideal.lat - current.lat) * LERP_FACTOR);
-        const lng = wrapLng(current.lng + (ideal.lng - current.lng) * LERP_FACTOR);
-        displayPosRef.current[a.id] = { lat, lng };
-      });
-      // Drop display positions for agents no longer in list
-      const ids = new Set(agents.map((a) => a.id));
-      for (const id of Object.keys(displayPosRef.current)) {
-        if (!ids.has(id)) delete displayPosRef.current[id];
-      }
     }, 80);
     return () => clearInterval(id);
-  }, [agents, stateTimestamp]);
+  }, []);
 
   useEffect(() => {
     fetch(COUNTRIES_GEOJSON)
@@ -154,46 +161,27 @@ export default function GlobeViewer({
     return () => cancelAnimationFrame(id);
   }, [globeReady, autoRotate]);
 
-  // When a specific agent is selected from the Active Agents panel,
-  // smoothly fly the camera to that agent's position and zoom in a bit.
   useEffect(() => {
     if (!globeReady || !focusAgentId || !globeRef.current) return;
-    const globe = globeRef.current;
-
     const agent = agents.find((a) => a.id === focusAgentId);
     if (!agent) return;
-
-    const pos =
-      agent.type === 'satellite' && agent.route
-        ? getAgentPosition(agent)
-        : { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
-
+    const pos = { lat: agent.lat ?? 0, lng: agent.lng ?? 0 };
     try {
+      const globe = globeRef.current;
       const controls = globe.controls();
       controls.autoRotate = false;
-      globe.pointOfView(
-        { lat: pos.lat, lng: pos.lng, altitude: 0.7 },
-        1000
-      );
+      globe.pointOfView({ lat: pos.lat, lng: pos.lng, altitude: 0.7 }, 1000);
     } catch {
-      /* ignore camera errors */
+      /* ignore */
     }
-  }, [focusAgentId, globeReady]);
+  }, [focusAgentId, globeReady, agents]);
 
   const globeMaterial = useMemo(
     () => new THREE.MeshBasicMaterial({ color: 0xffffff }),
     []
   );
 
-  // Compute ideal (server-interpolated) position. Used by display lerp and by
-  // getRenderedAgentPosition. stateTs is last state fetch time (ms).
-  function getRenderedAgentPositionForLerp(
-    agent: Agent,
-    stateTs: number
-  ): { lat: number; lng: number } {
-    if (agent.type === 'satellite' && agent.route) {
-      return getAgentPosition(agent);
-    }
+  function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
     const baseLat = agent.lat ?? 0;
     const baseLng = agent.lng ?? 0;
     if (!agent.target || agent.speed == null || agent.speed <= 0) {
@@ -203,7 +191,7 @@ export default function GlobeViewer({
     const dist = angularDistanceDeg(baseLat, baseLng, target.lat, target.lng);
     if (dist <= 0) return { lat: target.lat, lng: target.lng };
     const stepFrac = Math.min(1, agent.speed / dist);
-    const elapsedSeconds = Math.max(0, (Date.now() - stateTs) / 1000);
+    const elapsedSeconds = Math.max(0, (lastTimeRef.current - stateTimestamp) / 1000);
     const tickFrac = Math.min(1, elapsedSeconds / TICK_SECONDS);
     const frac = stepFrac * tickFrac;
     return {
@@ -212,53 +200,40 @@ export default function GlobeViewer({
     };
   }
 
-  function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
-    return getRenderedAgentPositionForLerp(agent, stateTimestamp);
-  }
+  const threeColorSpace =
+    THREE.SRGBColorSpace ?? (THREE as unknown as { SRGBColorSpace?: number }).SRGBColorSpace;
 
-  // Satellite icon texture (billboard sprite)
   const satelliteTexture = useMemo(() => {
     const loader = new THREE.TextureLoader();
     const tex = loader.load('/satellite.png');
     tex.anisotropy = 8;
-    tex.colorSpace =
-      // @ts-ignore - support both legacy and new colorSpace APIs
-      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    tex.colorSpace = threeColorSpace ?? tex.colorSpace;
     return tex;
-  }, []);
+  }, [threeColorSpace]);
 
-  // Water drone icon texture (billboard sprite)
   const waterDroneTexture = useMemo(() => {
     const loader = new THREE.TextureLoader();
     const tex = loader.load('/watering-drone.png');
     tex.anisotropy = 8;
-    // @ts-ignore - support both legacy and new colorSpace APIs
-    tex.colorSpace =
-      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    tex.colorSpace = threeColorSpace ?? tex.colorSpace;
     return tex;
-  }, []);
+  }, [threeColorSpace]);
 
-  // Scout icon texture (billboard sprite)
   const scoutTexture = useMemo(() => {
     const loader = new THREE.TextureLoader();
     const tex = loader.load('/scout.png');
     tex.anisotropy = 8;
-    // @ts-ignore - support both legacy and new colorSpace APIs
-    tex.colorSpace =
-      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    tex.colorSpace = threeColorSpace ?? tex.colorSpace;
     return tex;
-  }, []);
+  }, [threeColorSpace]);
 
-  // Heavy tanker icon texture (billboard sprite)
   const tankerTexture = useMemo(() => {
     const loader = new THREE.TextureLoader();
     const tex = loader.load('/tanker.png');
     tex.anisotropy = 8;
-    // @ts-ignore - support both legacy and new colorSpace APIs
-    tex.colorSpace =
-      THREE.SRGBColorSpace || (THREE as any).SRGBColorSpace || tex.colorSpace;
+    tex.colorSpace = threeColorSpace ?? tex.colorSpace;
     return tex;
-  }, []);
+  }, [threeColorSpace]);
 
   /* ─── Build globe objects ─────────────────────────────── */
 
@@ -271,12 +246,6 @@ export default function GlobeViewer({
       intensity: f.intensity ?? 1,
     }));
 
-    const agentObjs: GlobeObject[] = agents.map((a) => {
-      const ideal = getRenderedAgentPosition(a);
-      const pos = displayPosRef.current[a.id] ?? ideal;
-      return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
-    });
-
     const waterObjs: GlobeObject[] = waterSources.map((ws) => ({
       type: 'water' as const,
       id: ws.id,
@@ -285,13 +254,21 @@ export default function GlobeViewer({
       name: ws.name,
     }));
 
+    if (agents.length === 0) return [...fireObjs, ...waterObjs];
+
+    const agentObjs: GlobeObject[] = agents.map((a) => {
+      const ideal = getRenderedAgentPosition(a);
+      const pos = displayPosRef.current[a.id] ?? ideal;
+      return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
+    });
     return [...fireObjs, ...agentObjs, ...waterObjs];
-  }, [fires, agents, waterSources, serverTick, stateTimestamp, tick]);
+  }, [fires, agents, waterSources]);
 
   /* ─── Agent ring data (stable refs) ───────────────────── */
 
   const agentRingDataRef = useRef<Map<string, GlobeObject>>(new Map());
   const agentRingData = useMemo(() => {
+    if (agents.length === 0) return [];
     const map = agentRingDataRef.current;
     agents.forEach((a) => {
       if (!a.searchRadius) return;
@@ -315,7 +292,7 @@ export default function GlobeViewer({
       if (!agents.some((a) => a.id === id)) map.delete(id);
     }
     return Array.from(map.values());
-  }, [agents, serverTick, stateTimestamp, tick]);
+  }, [agents]);
 
   const fireObjects = globeObjects.filter((o) => o.type === 'fire');
 
@@ -345,7 +322,7 @@ export default function GlobeViewer({
       endLng: to.lng,
       agentType: focusedAgent.type as AgentType,
     };
-  }, [focusedAgent, stateTimestamp, serverTick, tick]);
+  }, [focusedAgent]);
 
   /* ─── Three.js object creators ────────────────────────── */
 
@@ -496,7 +473,7 @@ export default function GlobeViewer({
           if (obj.type === 'agent') {
             const a = obj.agent;
             const label = a.displayName?.trim() || (AGENT_LABELS[a.type] ?? a.type);
-            let info = `${label} · ${Math.round(a.batteryPercentage)}%`;
+            let info = `${label} · ${Math.round(a.batteryPercentage ?? 0)}%`;
             if (a.searchRadius) info += ` · ${a.searchRadius}° radius`;
             if (a.waterCapacity != null)
               info += ` · Water ${a.waterLevel ?? 0}/${a.waterCapacity}`;

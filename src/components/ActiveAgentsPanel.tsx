@@ -1,57 +1,22 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useGameState } from '@/contexts/GameStateContext';
-
-type Agent = {
-  id: string;
-  type: string;
-  batteryPercentage: number;
-  currentAction?: string | null;
-  displayName?: string;
-  lat?: number;
-  lng?: number;
-};
-
-type AgentLeaderboardEntry = {
-  agentId: string;
-  label: string;
-  type: string;
-  score: number;
-  firstTick: number;
-};
-
 export default function ActiveAgentsPanel({
   onFocusAgent,
 }: {
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const { agents, agentLeaderboard: scores } = useGameState();
-
+  const agents: Array<{
+    id: string;
+    type: string;
+    batteryPercentage: number;
+    currentAction?: string | null;
+    displayName?: string;
+    label: string;
+    score: number;
+  }> = [];
   const box =
     'overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-200/40 backdrop-blur-sm';
-
-  const sorted = useMemo(
-    () => {
-      if (!agents.length) return [];
-      const scoreById = new Map(scores.map((s) => [s.agentId, s]));
-      return [...agents]
-        .map((a) => {
-          const scoreEntry = scoreById.get(a.id);
-          const friendlyType = (a.type ?? 'agent').replace('_', ' ');
-          const name = a.displayName?.trim();
-          const label = name ? name : friendlyType;
-          return {
-            ...a,
-            label,
-            score: scoreEntry?.score ?? 0,
-          };
-        })
-        .sort((a, b) => b.score - a.score || (b.batteryPercentage ?? 0) - (a.batteryPercentage ?? 0))
-        .slice(0, 10);
-    },
-    [agents, scores]
-  );
+  const sorted = agents;
 
   return (
     <div className={box}>

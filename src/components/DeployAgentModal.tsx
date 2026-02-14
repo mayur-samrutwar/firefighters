@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const SKILL_URL = '/api/skill';
+const SKILL_URL = '/skill.md';
 
 type DeployAgentModalProps = {
   isOpen: boolean;
@@ -35,17 +35,13 @@ export default function DeployAgentModal({ isOpen, onClose }: DeployAgentModalPr
   useEffect(() => {
     if (!isOpen) return;
     fetch(SKILL_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load');
-        return res.text();
-      })
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error('Failed to load'))))
       .then(setContent)
       .catch(() => setContent('# Error\nCould not load skill.md'));
   }, [isOpen]);
 
   const skillUrl =
     typeof window !== 'undefined' ? `${window.location.origin}${SKILL_URL}` : '';
-
   const curlCommand = `curl ${skillUrl}`;
 
   const handleCopy = async () => {
