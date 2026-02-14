@@ -167,32 +167,21 @@ export async function POST(request: Request) {
     );
   }
 
-  // Sync external agent into game state (DB) if not already present.
-  // Only act (not perception) re-creates missing agents, so passive polling doesn't resurrect old agents.
+  // Do NOT re-create missing agents on act. If a user's cron keeps calling act after a reset
+  // or agent death, we must not resurrect the agent — return 404 so they stay gone until
+  // the owner explicitly re-registers or deploys again.
   let agent = await getAgentById(auth.agent.id);
   if (!agent) {
-    const profileMap: Record<string, 'satellite' | 'scout' | 'water_drone' | 'heavy_tanker' | 'supply_drone'> = {
-      satellite: 'satellite',
-      scout: 'scout',
-      water_drone: 'water_drone',
-      heavy_tanker: 'heavy_tanker',
-      supply_drone: 'supply_drone',
-    };
-    const agentType = profileMap[auth.agent.profile];
-    if (!agentType) {
-      return NextResponse.json(
-        { ok: false, error: `Unknown profile: ${auth.agent.profile}` },
-        { status: 500 }
-      );
-    }
-    agent = await syncExternalAgent({
-      agentId: auth.agent.id,
-      type: agentType,
-      lat: 0,
-      lng: 0,
-      displayName: auth.agent.name,
-    });
-  } else if (auth.agent.name && auth.agent.name !== agent.displayName) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'Agent not in current game (game was reset or agent died). Re-register via POST /api/public-agents/register to re-enter the game.',
+      },
+      { status: 404 }
+    );
+  }
+  if (auth.agent.name && auth.agent.name !== agent.displayName) {
     // Keep display name in sync for already-synced agents
     agent = await syncExternalAgent({
       agentId: auth.agent.id,
