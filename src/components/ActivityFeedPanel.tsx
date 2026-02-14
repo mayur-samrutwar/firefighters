@@ -79,6 +79,18 @@ const UPDATE_CONFIG: Record<
   world_event: { label: 'Event', color: '#a855f7', icon: '⚡' },
 };
 
+// Same event types as WorldEventsPanel so Activity matches the globe
+const WORLD_EVENT_CONFIG: Record<
+  string,
+  { label: string; color: string; icon: string }
+> = {
+  lightning_storm: { label: 'Lightning Storm', color: '#eab308', icon: '⚡' },
+  drought: { label: 'Drought Zone', color: '#f97316', icon: '☀️' },
+  solar_flare: { label: 'Solar Flare', color: '#a855f7', icon: '🌟' },
+  strong_winds: { label: 'Strong Winds', color: '#06b6d4', icon: '💨' },
+  equipment_malfunction: { label: 'Malfunction', color: '#ef4444', icon: '⚠️' },
+};
+
 const AGENT_TYPE_LABELS: Record<string, string> = {
   satellite: 'Satellite',
   water_drone: 'Water drone',
@@ -203,13 +215,12 @@ export default function ActivityFeedPanel() {
                   );
                 }
                 const u = item.event;
-                const config = UPDATE_CONFIG[u.type] ?? {
-                  label: u.type,
-                  color: '#94a3b8',
-                  icon: '•',
-                };
+                const isWorldEvent = u.type === 'world_event';
+                const config = isWorldEvent && u.worldEventType
+                  ? (WORLD_EVENT_CONFIG[u.worldEventType] ?? UPDATE_CONFIG.world_event)
+                  : (UPDATE_CONFIG[u.type] ?? { label: u.type, color: '#94a3b8', icon: '•' });
                 const agent = agentsList.find((a) => a.id === u.agentId);
-                const label = u.type === 'world_event'
+                const label = isWorldEvent
                   ? u.message ?? (u.worldEventType ? `World: ${u.worldEventType}` : 'World event')
                   : `${authorLabel(agent, 'Agent')} ${config.label.toLowerCase()} at ${formatCoord(u.lat, u.lng)}`;
                 return (
