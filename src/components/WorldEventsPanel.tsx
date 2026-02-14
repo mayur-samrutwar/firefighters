@@ -1,5 +1,7 @@
 'use client';
 
+import { useGameState } from '@/contexts/GameStateContext';
+
 const EVENT_CONFIG: Record<
   string,
   { label: string; color: string; icon: string; bg: string }
@@ -11,6 +13,12 @@ const EVENT_CONFIG: Record<
     bg: 'bg-amber-50',
   },
   drought: {
+    label: 'Drought Zone',
+    color: '#f97316',
+    icon: '☀️',
+    bg: 'bg-orange-50',
+  },
+  drought_zone: {
     label: 'Drought Zone',
     color: '#f97316',
     icon: '☀️',
@@ -37,8 +45,9 @@ const EVENT_CONFIG: Record<
 };
 
 export default function WorldEventsPanel() {
-  const events: Array<{ id: string; type: string; startTick: number; duration: number; message: string }> = [];
-  const tick = 0;
+  const { state } = useGameState();
+  const events = state.world_events;
+  const tick = state.tick;
 
   if (events.length === 0) return null;
 
@@ -53,7 +62,7 @@ export default function WorldEventsPanel() {
           };
           const remaining = Math.max(
             0,
-            evt.startTick + evt.duration - tick
+            evt.start_tick + evt.duration_ticks - tick
           );
 
           return (

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
+import { GameStateProvider } from '@/contexts/GameStateContext';
 import ActivityFeedPanel from '@/components/ActivityFeedPanel';
 import DeploySection from '@/components/DeploySection';
 import WorldEventsPanel from '@/components/WorldEventsPanel';
@@ -22,6 +23,7 @@ export default function Home() {
   const [showInfo, setShowInfo] = useState(false);
 
   return (
+    <GameStateProvider>
     <div className="relative h-[100dvh] w-full overflow-hidden bg-background">
       <GlobeViewer autoRotate={autoRotate} focusAgentId={focusAgentId} />
       <div className="pointer-events-none absolute left-8 top-8 z-10 select-none font-display">
@@ -51,5 +53,6 @@ export default function Home() {
       />
       <InfoModal isOpen={showInfo} onClose={() => setShowInfo(false)} />
     </div>
+    </GameStateProvider>
   );
 }

@@ -1,8 +1,11 @@
 'use client';
 
+import { useGameState } from '@/contexts/GameStateContext';
+
 export default function EarthLifeRing() {
-  const life = 100;
-  const tick = 0;
+  const { state, error } = useGameState();
+  const life = state.earth_life_pct;
+  const tick = state.tick;
   const pct = Math.max(0, Math.min(100, life));
   const angle = (pct / 100) * 360;
   const color =
@@ -33,6 +36,11 @@ export default function EarthLifeRing() {
           <span className="mt-0.5 text-[10px] text-slate-400">
             Tick: {tick}
           </span>
+          {error && (
+            <span className="mt-1 block text-[10px] text-red-500" title={error}>
+              API: {error}
+            </span>
+          )}
         </div>
     </div>
   );

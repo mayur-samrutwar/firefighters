@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import type { GlobeMethods } from 'react-globe.gl';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
+import { useGameState } from '@/contexts/GameStateContext';
 
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
@@ -98,9 +99,32 @@ export default function GlobeViewer({
   const [countries, setCountries] = useState<object[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
   const [, setTick] = useState(0);
+  const { state } = useGameState();
 
-  const fires = useMemo<Fire[]>(() => [], []);
-  const agents = useMemo<Agent[]>(() => [], []);
+  const fires = useMemo<Fire[]>(
+    () =>
+      state.fires.map((f) => ({
+        id: f.id,
+        lat: f.lat,
+        lng: f.lng,
+        intensity: f.intensity,
+        fireType: f.type,
+      })),
+    [state.fires]
+  );
+  const agents = useMemo<Agent[]>(
+    () =>
+      state.agents.map((a) => ({
+        id: a.id,
+        type: a.type as AgentType,
+        lat: a.lat,
+        lng: a.lng,
+        batteryPercentage: a.batteryPercentage,
+        displayName: a.displayName,
+        score: a.score,
+      })),
+    [state.agents]
+  );
   const waterSources = useMemo<{ id: string; lat: number; lng: number; name: string }[]>(() => [], []);
   const stateTimestamp = 0;
   const lastTimeRef = useRef(0);

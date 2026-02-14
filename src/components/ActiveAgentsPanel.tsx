@@ -1,19 +1,31 @@
 'use client';
 
+import { useGameState } from '@/contexts/GameStateContext';
+
+const AGENT_LABELS: Record<string, string> = {
+  satellite: 'Satellite',
+  scout: 'Scout',
+  water_drone: 'Water Drone',
+  heavy_tanker: 'Heavy Tanker',
+  supply_drone: 'Supply Drone',
+  coordinator: 'Coordinator',
+};
+
 export default function ActiveAgentsPanel({
   onFocusAgent,
 }: {
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const agents: Array<{
-    id: string;
-    type: string;
-    batteryPercentage: number;
-    currentAction?: string | null;
-    displayName?: string;
-    label: string;
-    score: number;
-  }> = [];
+  const { state } = useGameState();
+  const agents = state.agents.map((a) => ({
+    id: a.id,
+    type: a.type,
+    batteryPercentage: a.batteryPercentage,
+    currentAction: null as string | null,
+    displayName: a.displayName,
+    label: a.displayName || AGENT_LABELS[a.type] || a.type,
+    score: a.score,
+  }));
   const box =
     'overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-200/40 backdrop-blur-sm';
   const sorted = agents;
