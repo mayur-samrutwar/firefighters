@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { GlobeMethods } from 'react-globe.gl';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
 import { useGameState } from '@/contexts/GameStateContext';
+import { WATER_SOURCES } from '@/data/water-sources';
 
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
@@ -125,7 +126,7 @@ export default function GlobeViewer({
       })),
     [state.agents]
   );
-  const waterSources = useMemo<{ id: string; lat: number; lng: number; name: string }[]>(() => [], []);
+  const waterSources = WATER_SOURCES;
   const stateTimestamp = 0;
   const lastTimeRef = useRef(0);
 
