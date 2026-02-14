@@ -167,7 +167,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // Sync external agent into game state (DB) if not already present
+  // Sync external agent into game state (DB) if not already present.
+  // Only act (not perception) re-creates missing agents, so passive polling doesn't resurrect old agents.
   let agent = await getAgentById(auth.agent.id);
   if (!agent) {
     const profileMap: Record<string, 'satellite' | 'scout' | 'water_drone' | 'heavy_tanker' | 'supply_drone'> = {

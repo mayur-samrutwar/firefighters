@@ -44,29 +44,21 @@ export async function POST(request: Request) {
 
   let agent = await getAgentById(auth.agent.id);
 
+  // Do NOT auto-create agent here. If the agent is missing (e.g. after a game reset),
+  // return 404 so that passive perception polling doesn't keep resurrecting old agents.
+  // Agents re-enter the game only when someone sends an action via POST /api/public-agents/act.
   if (!agent) {
-    const profileMap: Record<string, 'satellite' | 'scout' | 'water_drone' | 'heavy_tanker' | 'supply_drone'> = {
-      satellite: 'satellite',
-      scout: 'scout',
-      water_drone: 'water_drone',
-      heavy_tanker: 'heavy_tanker',
-      supply_drone: 'supply_drone',
-    };
-    const agentType = profileMap[auth.agent.profile];
-    if (!agentType) {
-      return NextResponse.json(
-        { ok: false, error: `Unknown profile: ${auth.agent.profile}` },
-        { status: 500 }
-      );
-    }
-    agent = await syncExternalAgent({
-      agentId: auth.agent.id,
-      type: agentType,
-      lat: 0,
-      lng: 0,
-      displayName: auth.agent.name,
-    });
-  } else if (auth.agent.name && auth.agent.name !== agent.displayName) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'Agent not in current game (e.g. game was reset). Send an action via POST /api/public-agents/act to re-enter the game.',
+      },
+      { status: 404 }
+    );
+  }
+
+  if (auth.agent.name && auth.agent.name !== agent.displayName) {
     // Keep display name in sync for already-synced agents
     agent = await syncExternalAgent({
       agentId: auth.agent.id,

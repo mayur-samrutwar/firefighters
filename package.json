@@ -15,7 +15,8 @@
     "test:public-agents-auth": "node scripts/test-public-agents-auth.mjs",
     "test:public-agents-perception": "node scripts/test-public-agents-perception.mjs",
     "test:public-agents-act": "node scripts/test-public-agents-act.mjs",
-    "test:all": "npm run test:supabase && npm run test:public-agents && npm run test:public-agents-auth && npm run test:public-agents-perception && npm run test:public-agents-act && npx hardhat test"
+    "test:all": "npm run test:supabase && npm run test:public-agents && npm run test:public-agents-auth && npm run test:public-agents-perception && npm run test:public-agents-act && npx hardhat test",
+    "test:production": "node scripts/test-production-ready.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",

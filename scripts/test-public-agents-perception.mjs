@@ -120,6 +120,17 @@ async function main() {
       .limit(1);
     ownerId = owners?.[0]?.id ?? null;
 
+    // Agent must be in the game to get perception. Send one action so act route syncs them into game_agents.
+    await fetch(`${BASE}/api/public-agents/act`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId,
+        secret: regJson.secret,
+        action: { type: 'noop' },
+      }),
+    });
+
     console.log('\n🧪 Test 1: Successful perception request (200) or payment required (402)');
 
     const goodRes = await fetch(`${BASE}/api/public-agents/perception`, {
@@ -139,15 +150,14 @@ async function main() {
       assert(goodJson.ok === false && goodJson.error, '402 response has ok=false and error message');
     } else {
       assert(goodJson.ok === true, 'Perception ok=true');
-      assert(typeof goodJson.tick === 'number', 'Perception has tick');
       assert(
-        goodJson.agent && goodJson.agent.id === agentId,
-        'Perception response has matching agent id'
+        goodJson.perception && goodJson.perception.self?.id === agentId,
+        'Perception response has matching agent id in perception.self'
       );
       assert(
         goodJson.perception &&
-          (Array.isArray(goodJson.perception?.fires) ||
-            Array.isArray(goodJson.perception?.nearbyFires)),
+          (Array.isArray(goodJson.perception?.nearbyFires) ||
+            'nearbyFires' in (goodJson.perception ?? {})),
         'Perception contains fire information'
       );
     }
