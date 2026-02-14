@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 type Fire = { id: string; lat: number; lng: number; intensity: number; fireType?: string };
 
-type AgentSummary = { id: string; type: string };
+type AgentSummary = { id: string; type: string; displayName?: string };
 
 type UpdateEvent = {
   id: string;
@@ -24,27 +24,25 @@ function formatCoord(lat: number, lng: number) {
   return `${Math.abs(lat).toFixed(2)}°${ns}, ${Math.abs(lng).toFixed(2)}°${ew}`;
 }
 
-function shortId(id?: string) {
-  if (!id) return '';
-  // "agent-1234567890-abc" → "abc"
-  const parts = id.split('-');
-  return parts[parts.length - 1]?.slice(0, 5) ?? id.slice(-5);
-}
+const TYPE_LABELS: Record<string, string> = {
+  satellite: 'Satellite',
+  water_drone: 'Water drone',
+  heavy_tanker: 'Tanker',
+  scout: 'Scout',
+  supply_drone: 'Supply drone',
+  coordinator: 'Coordinator',
+};
 
 function eventText(
   u: UpdateEvent,
-  agentType?: string
+  agent?: AgentSummary | null
 ): { agent: string | null; text: string } {
   const labelForAgent = (fallback: string) => {
     if (!u.agentId) return null;
-    if (!agentType) return `${fallback} ${shortId(u.agentId)}`;
-    if (agentType === 'satellite') return `Satellite ${shortId(u.agentId)}`;
-    if (agentType === 'water_drone') return `Water drone ${shortId(u.agentId)}`;
-    if (agentType === 'heavy_tanker') return `Tanker ${shortId(u.agentId)}`;
-    if (agentType === 'scout') return `Scout ${shortId(u.agentId)}`;
-    if (agentType === 'supply_drone') return `Supply drone ${shortId(u.agentId)}`;
-    if (agentType === 'coordinator') return `Coordinator ${shortId(u.agentId)}`;
-    return `${fallback} ${shortId(u.agentId)}`;
+    const name = agent?.displayName?.trim();
+    if (name) return name;
+    const typeLabel = agent?.type ? TYPE_LABELS[agent.type] ?? agent.type.replace('_', ' ') : fallback;
+    return typeLabel;
   };
 
   switch (u.type) {
@@ -91,9 +89,10 @@ export default function NewsPanel() {
           setFires(data.fires || []);
           setUpdates(data.updates || []);
           setAgents(
-            (data.agents || []).map((a: any) => ({
-              id: a.id as string,
-              type: a.type as string,
+            (data.agents || []).map((a: { id: string; type: string; displayName?: string }) => ({
+              id: a.id,
+              type: a.type,
+              displayName: a.displayName,
             }))
           );
         })
@@ -170,8 +169,8 @@ export default function NewsPanel() {
           ) : (
             <div className="space-y-3">
               {sortedUpdates.map((u) => {
-                const matchedAgent = agents.find((a) => a.id === u.agentId);
-                const { agent, text } = eventText(u, matchedAgent?.type);
+                const matchedAgent = agents.find((a) => a.id === u.agentId) ?? null;
+                const { agent, text } = eventText(u, matchedAgent);
                 return (
                   <div
                     key={u.id}

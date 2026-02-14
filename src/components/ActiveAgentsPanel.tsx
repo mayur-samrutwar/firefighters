@@ -20,11 +20,6 @@ type AgentLeaderboardEntry = {
   firstTick: number;
 };
 
-function shortId(id: string) {
-  const parts = id.split('-');
-  return parts[parts.length - 1]?.slice(0, 5) ?? id.slice(-5);
-}
-
 export default function ActiveAgentsPanel({
   onFocusAgent,
 }: {
@@ -61,14 +56,11 @@ export default function ActiveAgentsPanel({
         .map((a) => {
           const scoreEntry = scoreById.get(a.id);
           const friendlyType = a.type.replace('_', ' ');
-          const baseLabel =
-            a.displayName && a.displayName.trim().length > 0
-              ? `${a.displayName} · ${friendlyType}`
-              : scoreEntry?.label ??
-                `${friendlyType} · ${shortId(a.id)}`;
+          const name = a.displayName?.trim();
+          const label = name ? name : friendlyType;
           return {
             ...a,
-            label: baseLabel,
+            label,
             score: scoreEntry?.score ?? 0,
           };
         })

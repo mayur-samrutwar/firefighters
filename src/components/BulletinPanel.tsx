@@ -15,11 +15,7 @@ type BulletinPost = {
   ttl: number;
 };
 
-function shortId(id?: string) {
-  if (!id) return '';
-  const parts = id.split('-');
-  return parts[parts.length - 1]?.slice(0, 5) ?? id.slice(-5);
-}
+type AgentSummary = { id: string; displayName?: string };
 
 function formatCoord(lat?: number, lng?: number) {
   if (lat == null || lng == null) return '';
@@ -42,13 +38,20 @@ const POST_TYPE_CONFIG: Record<
 
 export default function BulletinPanel() {
   const [posts, setPosts] = useState<BulletinPost[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
 
   useEffect(() => {
     const fetchBulletin = () =>
       fetch('/api/state', { cache: 'no-store' })
         .then((res) => res.json())
-        .then((data) => setPosts(data.bulletin || []))
-        .catch(() => setPosts([]));
+        .then((data) => {
+          setPosts(data.bulletin || []);
+          setAgents((data.agents || []).map((a: { id: string; displayName?: string }) => ({ id: a.id, displayName: a.displayName })));
+        })
+        .catch(() => {
+          setPosts([]);
+          setAgents([]);
+        });
     fetchBulletin();
     const interval = setInterval(fetchBulletin, 2000);
     return () => clearInterval(interval);
@@ -113,7 +116,7 @@ export default function BulletinPanel() {
                         {post.lat != null && (
                           <span>{formatCoord(post.lat, post.lng)}</span>
                         )}
-                        <span>by {shortId(post.authorId)}</span>
+                        <span>by {agents.find((a) => a.id === post.authorId)?.displayName?.trim() || 'Unknown'}</span>
                       </div>
                     </div>
                   </div>

@@ -487,7 +487,7 @@ export default function GlobeViewer({
           const obj = d as GlobeObject;
           if (obj.type === 'agent') {
             const a = obj.agent;
-            const label = AGENT_LABELS[a.type] ?? a.type;
+            const label = a.displayName?.trim() || (AGENT_LABELS[a.type] ?? a.type);
             let info = `${label} · ${Math.round(a.batteryPercentage)}%`;
             if (a.searchRadius) info += ` · ${a.searchRadius}° radius`;
             if (a.waterCapacity != null)

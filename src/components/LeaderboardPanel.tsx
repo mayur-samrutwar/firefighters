@@ -10,15 +10,24 @@ type AgentEntry = {
   firstTick: number;
 };
 
+type AgentSummary = { id: string; displayName?: string };
+
 export default function LeaderboardPanel() {
-  const [agents, setAgents] = useState<AgentEntry[]>([]);
+  const [entries, setEntries] = useState<AgentEntry[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
 
   useEffect(() => {
     const fetchLeaderboard = () =>
       fetch('/api/state', { cache: 'no-store' })
         .then((res) => res.json())
-        .then((data) => setAgents(data.agentLeaderboard || []))
-        .catch(() => setAgents([]));
+        .then((data) => {
+          setEntries(data.agentLeaderboard || []);
+          setAgents((data.agents || []).map((a: { id: string; displayName?: string }) => ({ id: a.id, displayName: a.displayName })));
+        })
+        .catch(() => {
+          setEntries([]);
+          setAgents([]);
+        });
     fetchLeaderboard();
     const interval = setInterval(fetchLeaderboard, 2000);
     return () => clearInterval(interval);
@@ -46,20 +55,23 @@ export default function LeaderboardPanel() {
       <div className={box}>
         <p className="border-b border-slate-200/80 px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           Agent Leaderboard
-          {agents.length > 0 && (
+          {entries.length > 0 && (
             <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">
-              {agents.length}
+              {entries.length}
             </span>
           )}
         </p>
         <div className="max-h-64 overflow-y-auto">
-          {agents.length === 0 ? (
+          {entries.length === 0 ? (
             <p className="px-4 py-6 text-center text-xs text-slate-400">
               No agents scored yet
             </p>
           ) : (
             <div className="divide-y divide-slate-100">
-              {agents.slice(0, 20).map((entry, idx) => (
+              {entries.slice(0, 20).map((entry, idx) => {
+                const name = agents.find((a) => a.id === entry.agentId)?.displayName?.trim();
+                const displayLabel = name || entry.label.split(' · ')[0] || entry.type?.replace('_', ' ') || 'Agent';
+                return (
                 <div
                   key={entry.agentId}
                   className="flex items-center gap-3 px-4 py-2.5"
@@ -74,7 +86,7 @@ export default function LeaderboardPanel() {
                   {/* Name + joined info */}
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[12px] font-medium text-slate-700">
-                      {entry.label}
+                      {displayLabel}
                     </p>
                   </div>
 
@@ -86,7 +98,7 @@ export default function LeaderboardPanel() {
                     <p className="text-[9px] text-slate-300">pts</p>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
           )}
         </div>
