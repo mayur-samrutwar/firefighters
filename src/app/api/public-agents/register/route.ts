@@ -11,6 +11,43 @@ import type { AgentProfile } from "@/data/actions";
 
 const PROFILES = ["satellite", "scout", "water_drone", "heavy_tanker", "supply_drone"] as const;
 
+/** Random lat in [-85, 85] (avoid poles), lng in [-180, 180]. */
+function randomSpawnCoords(): { lat: number; lng: number } {
+  const lat = Math.round((Math.random() * 170 - 85) * 1e6) / 1e6;
+  const lng = Math.round((Math.random() * 360 - 180) * 1e6) / 1e6;
+  return { lat, lng };
+}
+
+/** Random position along a route: segment index and t in [0,1). Returns lat, lng, route_index, route_t. */
+function randomPositionOnRoute(
+  route: [number, number][]
+): { lat: number; lng: number; route_index: number; route_t: number } {
+  const n = route.length;
+  if (n < 2) {
+    return {
+      lat: route[0]?.[0] ?? 0,
+      lng: route[0]?.[1] ?? 0,
+      route_index: 0,
+      route_t: 0,
+    };
+  }
+  const segCount = n - 1;
+  const segIndex = Math.floor(Math.random() * segCount);
+  const t = Math.random();
+  const [lat0, lng0] = route[segIndex];
+  const [lat1, lng1] = route[segIndex + 1];
+  const lat = lat0 + (lat1 - lat0) * t;
+  let lng = lng0 + (lng1 - lng0) * t;
+  if (lng > 180) lng -= 360;
+  if (lng < -180) lng += 360;
+  return {
+    lat: Math.round(lat * 1e6) / 1e6,
+    lng: Math.round(lng * 1e6) / 1e6,
+    route_index: segIndex,
+    route_t: t,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -46,12 +83,13 @@ export async function POST(req: NextRequest) {
     const secretHash = hashSecret(secret);
 
     const waterCapacity = getWaterCapacity(profile as AgentProfile);
+    const spawn = randomSpawnCoords();
     const insertPayload: Record<string, unknown> = {
       name: name.trim(),
       wallet: address,
       type: profile,
-      lat: 0,
-      lng: 0,
+      lat: spawn.lat,
+      lng: spawn.lng,
       battery_pct: 100,
       score: 0,
       secret_hash: secretHash,
@@ -75,14 +113,15 @@ export async function POST(req: NextRequest) {
     if (profile === "satellite" && agent?.id) {
       const routeIndex = getSatelliteRouteIndexForAgent(agent.id);
       const defaultRoute = getDefaultSatelliteRouteByIndex(routeIndex);
+      const pos = randomPositionOnRoute(defaultRoute);
       await supabase
         .from("agents")
         .update({
           route: defaultRoute,
-          route_index: 0,
-          route_t: 0,
-          lat: defaultRoute[0][0],
-          lng: defaultRoute[0][1],
+          route_index: pos.route_index,
+          route_t: pos.route_t,
+          lat: pos.lat,
+          lng: pos.lng,
         })
         .eq("id", agent.id);
     }

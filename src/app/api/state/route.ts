@@ -11,7 +11,7 @@ export async function GET() {
     const [stateRes, firesRes, agentsRes, bulletinRes, eventsRes] = await Promise.all([
       supabase.from("game_state").select("tick, earth_life_pct").eq("id", 1).single(),
       supabase.from("fires").select("id, lat, lng, intensity, type, created_tick, updated_tick").order("updated_tick", { ascending: false }),
-      supabase.from("agents").select("id, type, lat, lng, battery_pct, score, name, wallet, created_at, target_lat, target_lng, water_level, water_capacity, last_action_type").order("score", { ascending: false }),
+      supabase.from("agents").select("id, type, lat, lng, battery_pct, score, name, wallet, created_at, target_lat, target_lng, water_level, water_capacity, last_action_type").gt("battery_pct", 0).order("score", { ascending: false }),
       supabase.from("bulletin").select("id, agent_id, message, tick, created_at").order("tick", { ascending: false }).limit(50),
       supabase.from("world_events").select("id, type, start_tick, duration_ticks, params, created_at").order("start_tick", { ascending: false }),
     ]);
