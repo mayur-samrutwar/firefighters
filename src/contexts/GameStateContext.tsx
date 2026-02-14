@@ -47,6 +47,12 @@ export type GameState = {
     params: unknown;
     created_at: string;
   }>;
+  activity: Array<{
+    id: string;
+    kind: "bulletin" | "fire" | "world_event";
+    tick: number;
+    message: string;
+  }>;
 };
 
 const defaultState: GameState = {
@@ -56,6 +62,7 @@ const defaultState: GameState = {
   agents: [],
   bulletin: [],
   world_events: [],
+  activity: [],
 };
 
 const GameStateContext = createContext<{
@@ -95,6 +102,7 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
         agents: data.agents ?? [],
         bulletin: data.bulletin ?? [],
         world_events: data.world_events ?? [],
+        activity: data.activity ?? [],
       });
       setError(null);
     } catch (e) {

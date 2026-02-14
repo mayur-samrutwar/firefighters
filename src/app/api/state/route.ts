@@ -61,6 +61,36 @@ export async function GET() {
       created_at: e.created_at,
     }));
 
+    const EVENT_LABELS: Record<string, string> = {
+      lightning_storm: "Lightning storm",
+      drought_zone: "Drought zone",
+      solar_flare: "Solar flare",
+      strong_winds: "Strong winds",
+      equipment_malfunction: "Equipment malfunction",
+    };
+    const activityBulletin = bulletin.map((b) => ({
+      id: `bulletin-${b.id}`,
+      kind: "bulletin" as const,
+      tick: b.tick,
+      message: b.message,
+    }));
+    const activityFires = fires.map((f) => ({
+      id: `fire-${f.id}`,
+      kind: "fire" as const,
+      tick: f.created_tick,
+      message: `Fire at ${f.lat.toFixed(1)}°, ${f.lng.toFixed(1)}° — intensity ${f.intensity}`,
+    }));
+    const allWorldEvents = eventsRes.data ?? [];
+    const activityEvents = allWorldEvents.map((e) => ({
+      id: `event-${e.id}`,
+      kind: "world_event" as const,
+      tick: e.start_tick,
+      message: `${EVENT_LABELS[e.type] ?? e.type} started`,
+    }));
+    const activity = [...activityBulletin, ...activityFires, ...activityEvents]
+      .sort((a, b) => b.tick - a.tick)
+      .slice(0, 80);
+
     return NextResponse.json({
       tick,
       earth_life_pct: earthLifePct,
@@ -68,6 +98,7 @@ export async function GET() {
       agents,
       bulletin,
       world_events,
+      activity,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "state failed";
