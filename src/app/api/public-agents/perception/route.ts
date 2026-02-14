@@ -117,7 +117,12 @@ export async function POST(req: NextRequest) {
     const selfLat = Number(agent.lat);
     const selfLng = Number(agent.lng);
 
-    const fires = (firesRes.data ?? []).map((f) => {
+    const allEvents = eventsRes.data ?? [];
+    const activeWorldEvents = allEvents.filter(
+      (e) => e.start_tick <= tick && tick < e.start_tick + e.duration_ticks
+    ).map((e) => e.type);
+
+    const rawFires = (firesRes.data ?? []).map((f) => {
       const lat = Number(f.lat);
       const lng = Number(f.lng);
       const distance = haversineApprox(selfLat, selfLng, lat, lng);
@@ -130,6 +135,10 @@ export async function POST(req: NextRequest) {
         distance: Math.round(distance * 100) / 100,
       };
     });
+
+    const solarFlareActive = activeWorldEvents.includes("solar_flare");
+    const scanBlinded = agent.type === "satellite" && solarFlareActive;
+    const fires = scanBlinded ? [] : rawFires; // Satellites see no fires when solar flare is active
 
     const otherAgents = (agentsRes.data ?? []).filter((a) => a.id !== agent.id).map((a) => {
       const lat = Number(a.lat);
@@ -152,11 +161,6 @@ export async function POST(req: NextRequest) {
       tick: b.tick,
     }));
 
-    const allEvents = eventsRes.data ?? [];
-    const activeWorldEvents = allEvents.filter(
-      (e) => e.start_tick <= tick && tick < e.start_tick + e.duration_ticks
-    ).map((e) => e.type);
-
     return NextResponse.json({
       ok: true,
       tick,
@@ -164,6 +168,7 @@ export async function POST(req: NextRequest) {
       agent: { id: agent.id, profile: agent.type },
       perception: {
         tick,
+        ...(scanBlinded && { scanBlinded: true }),
         self: {
           id: agent.id,
           type: agent.type,

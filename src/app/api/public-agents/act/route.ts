@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
 import { verifySecret } from "@/lib/agent-auth";
 import { getAgentPayment } from "@/lib/treasury";
-import { isActionAllowedForProfile, getBatteryCostPercent, getScoreForAction, SCORE_EXTINGUISH } from "@/data/actions";
+import { isActionAllowedForProfile, getBatteryCostPercent, getScoreForAction, SCORE_EXTINGUISH, SCORE_FIRST_FIRE_REPORT } from "@/data/actions";
 import type { AgentProfile } from "@/data/actions";
 import { isAtWaterSource } from "@/data/water-sources";
 import { getWaterCapacity } from "@/data/profile-specs";
@@ -111,6 +111,9 @@ export async function POST(req: NextRequest) {
 
     const updates: Record<string, unknown> = { last_action_type: actionType };
 
+    /** Set when action is view_global_state; returned so agent can decide where to move without calling perception again. */
+    let actionResult: { globalFires: Array<{ id: string; lat: number; lng: number; intensity: number }>; globalAgents?: Array<{ id: string; type: string; lat: number; lng: number; battery_pct: number }> } | undefined;
+
     // One-time battery cost (e.g. view_global_state 5%)
     const batteryCost = getBatteryCostPercent(actionType);
     if (batteryCost > 0) {
@@ -152,6 +155,26 @@ export async function POST(req: NextRequest) {
     } else if (actionType === "sit_idle" || actionType === "abort_current") {
       updates.target_lat = null;
       updates.target_lng = null;
+    } else if (actionType === "view_global_state") {
+      const [firesRes, agentsRes] = await Promise.all([
+        supabase.from("fires").select("id, lat, lng, intensity"),
+        supabase.from("agents").select("id, type, lat, lng, battery_pct").gt("battery_pct", 0),
+      ]);
+      actionResult = {
+        globalFires: (firesRes.data ?? []).map((f) => ({
+          id: String(f.id),
+          lat: Number(f.lat),
+          lng: Number(f.lng),
+          intensity: Number(f.intensity ?? 0),
+        })),
+        globalAgents: (agentsRes.data ?? []).map((a) => ({
+          id: String(a.id),
+          type: String(a.type ?? ""),
+          lat: Number(a.lat),
+          lng: Number(a.lng),
+          battery_pct: Number(a.battery_pct ?? 0),
+        })),
+      };
     } else if (actionType === "refill") {
       const agentLat = Number(agent.lat ?? 0);
       const agentLng = Number(agent.lng ?? 0);
@@ -254,6 +277,139 @@ export async function POST(req: NextRequest) {
           { status: 500 }
         );
       }
+    } else if (actionType === "recharge_agent" || actionType === "emergency_recharge") {
+      const RECHARGE_NEAR_DEG = 2;
+      const BATTERY_TO_TARGET = 15;
+      const BATTERY_FROM_SUPPLY = 20;
+
+      const targetAgentId = action.targetAgentId != null ? String(action.targetAgentId).trim() : "";
+      if (!targetAgentId) {
+        return NextResponse.json(
+          { error: `${actionType} requires targetAgentId` },
+          { status: 400 }
+        );
+      }
+      if (targetAgentId === agentId) {
+        return NextResponse.json(
+          { error: "Cannot recharge yourself" },
+          { status: 400 }
+        );
+      }
+
+      const { data: targetAgent, error: targetError } = await supabase
+        .from("agents")
+        .select("id, lat, lng, battery_pct")
+        .eq("id", targetAgentId)
+        .single();
+
+      if (targetError || !targetAgent) {
+        return NextResponse.json(
+          { error: "Target agent not found" },
+          { status: 404 }
+        );
+      }
+
+      const supplyLat = Number(agent.lat ?? 0);
+      const supplyLng = Number(agent.lng ?? 0);
+      const targetLat = Number(targetAgent.lat ?? 0);
+      const targetLng = Number(targetAgent.lng ?? 0);
+      const dist = angularDistanceDeg(supplyLat, supplyLng, targetLat, targetLng);
+      if (dist > RECHARGE_NEAR_DEG) {
+        return NextResponse.json(
+          { error: `Target agent must be within ~${RECHARGE_NEAR_DEG}° to recharge` },
+          { status: 400 }
+        );
+      }
+
+      const supplyBattery = Number(agent.battery_pct ?? 100);
+      const targetBattery = Number(targetAgent.battery_pct ?? 0);
+      if (supplyBattery < BATTERY_FROM_SUPPLY) {
+        return NextResponse.json(
+          { error: "Not enough battery to perform recharge" },
+          { status: 400 }
+        );
+      }
+
+      const newSupplyBattery = Math.max(0, supplyBattery - BATTERY_FROM_SUPPLY);
+      const newTargetBattery = Math.min(100, targetBattery + BATTERY_TO_TARGET);
+      const scoreAdd = getScoreForAction(actionType);
+
+      updates.battery_pct = newSupplyBattery;
+      updates.score = (Number(agent.score ?? 0) + scoreAdd) as number;
+
+      const { error: targetUpdateErr } = await supabase
+        .from("agents")
+        .update({ battery_pct: newTargetBattery })
+        .eq("id", targetAgentId);
+
+      if (targetUpdateErr) {
+        return NextResponse.json(
+          { error: "Failed to update target agent battery" },
+          { status: 500 }
+        );
+      }
+    } else if (actionType === "investigate_fire") {
+      const INVESTIGATE_NEAR_DEG = 2;
+      const scoutLat = Number(agent.lat ?? 0);
+      const scoutLng = Number(agent.lng ?? 0);
+
+      const { data: firesRows } = await supabase
+        .from("fires")
+        .select("id, lat, lng");
+
+      const firesNearScout = (firesRows ?? []).filter((f) => {
+        const flat = Number(f.lat);
+        const flng = Number(f.lng);
+        return angularDistanceDeg(scoutLat, scoutLng, flat, flng) <= INVESTIGATE_NEAR_DEG;
+      });
+
+      const fireId = action.fireId != null ? String(action.fireId) : undefined;
+      const lat = action.lat != null && Number.isFinite(Number(action.lat)) ? Number(action.lat) : undefined;
+      const lng = action.lng != null && Number.isFinite(Number(action.lng)) ? Number(action.lng) : undefined;
+
+      let valid = false;
+      if (fireId != null) {
+        const match = firesNearScout.find((f) => String(f.id) === fireId);
+        valid = !!match;
+      } else if (lat != null && lng != null) {
+        valid = firesNearScout.some((f) =>
+          angularDistanceDeg(lat, lng, Number(f.lat), Number(f.lng)) <= INVESTIGATE_NEAR_DEG
+        );
+      } else {
+        valid = firesNearScout.length > 0;
+      }
+
+      if (!valid) {
+        return NextResponse.json(
+          { error: "investigate_fire requires being near a fire (within ~2°); provide fireId or lat/lng to verify" },
+          { status: 400 }
+        );
+      }
+      // Score applied by generic block
+    } else if (actionType === "mark_false_alarm") {
+      const lat = action.lat != null && Number.isFinite(Number(action.lat)) ? Number(action.lat) : undefined;
+      const lng = action.lng != null && Number.isFinite(Number(action.lng)) ? Number(action.lng) : undefined;
+
+      const { data: gameState } = await supabase
+        .from("game_state")
+        .select("tick")
+        .eq("id", 1)
+        .single();
+      const tick = Number(gameState?.tick ?? 0);
+      const message =
+        lat != null && lng != null
+          ? `False alarm at ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`
+          : "False alarm reported";
+      const bulletinPayload: Record<string, unknown> = { postType: "false_alarm", message };
+      if (lat != null) bulletinPayload.lat = lat;
+      if (lng != null) bulletinPayload.lng = lng;
+
+      await supabase.from("bulletin").insert({
+        agent_id: agentId,
+        message: JSON.stringify(bulletinPayload),
+        tick,
+      });
+      // Score applied by generic block
     } else if (actionType === "post_bulletin") {
       const postType = typeof action.postType === "string" ? action.postType.trim() : "";
       const message = typeof action.message === "string" ? action.message.trim() : "";
@@ -281,6 +437,42 @@ export async function POST(req: NextRequest) {
       if (fireId != null) bulletinPayload.fireId = fireId;
       if (targetAgentId != null) bulletinPayload.targetAgentId = targetAgentId;
 
+      if (postType === "fire_report") {
+        const { data: existingBulletins } = await supabase
+          .from("bulletin")
+          .select("message")
+          .order("tick", { ascending: false })
+          .limit(500);
+
+        let alreadyReported = false;
+        for (const row of existingBulletins ?? []) {
+          try {
+            const parsed = JSON.parse(String(row.message ?? "{}")) as {
+              postType?: string;
+              fireId?: string;
+              lat?: number;
+              lng?: number;
+            };
+            if (parsed.postType !== "fire_report") continue;
+            if (fireId != null && parsed.fireId != null && parsed.fireId === fireId) {
+              alreadyReported = true;
+              break;
+            }
+            if (lat != null && lng != null && parsed.lat != null && parsed.lng != null) {
+              if (Math.abs(parsed.lat - lat) < 0.02 && Math.abs(parsed.lng - lng) < 0.02) {
+                alreadyReported = true;
+                break;
+              }
+            }
+          } catch {
+            /* skip unparseable */
+          }
+        }
+        if (!alreadyReported) {
+          updates.score = (Number(agent.score ?? 0) + SCORE_FIRST_FIRE_REPORT) as number;
+        }
+      }
+
       const { error: bulletinError } = await supabase.from("bulletin").insert({
         agent_id: agentId,
         message: JSON.stringify(bulletinPayload),
@@ -295,6 +487,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Apply score for any scored action that didn't set it in its branch (e.g. investigate_fire, mark_false_alarm in Phase 7)
+    const scoreAdd = getScoreForAction(actionType);
+    if (scoreAdd > 0 && updates.score === undefined) {
+      updates.score = (Number(agent.score ?? 0) + scoreAdd) as number;
+    }
+
     await supabase
       .from("agents")
       .update(updates)
@@ -305,6 +503,7 @@ export async function POST(req: NextRequest) {
       accepted: true,
       agent: { id: agent.id, profile: agent.type },
       action: { type: actionType },
+      ...(actionResult != null && { actionResult }),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Act failed";

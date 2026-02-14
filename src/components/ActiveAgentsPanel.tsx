@@ -16,7 +16,9 @@ export default function ActiveAgentsPanel({
   onFocusAgent?: (agentId: string) => void;
 }) {
   const { state } = useGameState();
-  const agents = state.agents.map((a) => ({
+  const agents = state.agents
+    .filter((a) => (a.batteryPercentage ?? 0) > 0)
+    .map((a) => ({
     id: a.id,
     type: a.type,
     batteryPercentage: a.batteryPercentage,

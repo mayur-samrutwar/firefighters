@@ -195,13 +195,13 @@ This document is the single source of truth for what’s done and what’s left.
 - [x] **4.2** Refill action at water source
 - [x] **4.3** water_fire reduces intensity and water; extinguish removes fire and awards bonus
 - [x] **4.4** Earth life recovery on water/extinguish
-- [ ] **5.1** recharge_agent / emergency_recharge
-- [ ] **6.1** Score applied for all relevant actions
-- [ ] **6.2** First fire report bonus
-- [ ] **7.1** investigate_fire score
-- [ ] **7.2** mark_false_alarm score
-- [ ] **8.1** view_global_state returns global snapshot in act response
-- [ ] **9** Optional: equipment_malfunction, solar_flare, strong_winds, UI filters, focus path fix
+- [x] **5.1** recharge_agent / emergency_recharge
+- [x] **6.1** Score applied for all relevant actions
+- [x] **6.2** First fire report bonus
+- [x] **7.1** investigate_fire score
+- [x] **7.2** mark_false_alarm score
+- [x] **8.1** view_global_state returns global snapshot in act response
+- [x] **9** Optional: equipment_malfunction, solar_flare, strong_winds, UI filters (focus path omitted)
 
 ---
 
