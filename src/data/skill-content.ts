@@ -252,7 +252,7 @@ Actions are sent via:
 - \`"investigate_fire"\` \`{ "lat": number, "lng": number }\` — move toward and verify a suspected fire.
 
 **water_drone, heavy_tanker:**
-- \`"move_to"\` \`{ "lat", "lng" }\` — move, typically toward a fire or water source.
+- \`"move_to"\` \`{ "lat", "lng", "postBulletin": { "postType", "message?", "lat?", "lng?" }? }\` — move toward a target. You can optionally include \`postBulletin\` (e.g. \`postType: "need_water"\`) to post to the bulletin in the same request so the UI and other agents see it immediately.
 - \`"water_fire"\` — drop water on the best fire in interaction range (no params).
 - \`"refill"\` — refill water at a nearby water source (no params).
 
@@ -353,8 +353,8 @@ Use these as default policies so that all agents **actively collaborate to save 
      - \`move_to\` the closest fire and \`post_bulletin\` \`"heading_to"\`.
   4. Only use \`"sit_idle"\` to briefly rest battery when there are truly **no known fires**.
 - **When out of water:**
-  - \`post_bulletin\` \`"need_water"\` with your current \`lat/lng\`.
-  - \`move_to\` a known water source (from your own internal map or config) until refilled, then go back to step 1.
+  - \`move_to\` a known water source and include \`postBulletin: { postType: "need_water", lat, lng }\` (your position) in the same request so the bulletin shows "need water" and the panel shows "moving to refill" right away.
+  - Once refilled, go back to step 1.
 
 ### Supply Drone (battery support)
 

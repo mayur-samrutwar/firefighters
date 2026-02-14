@@ -34,7 +34,8 @@ function getCurrentActionLabel(
   waterLevel: number | undefined,
   waterCapacity: number | undefined
 ): string {
-  if (lastAction === 'move_to' && targetLat != null && targetLng != null) {
+  // Show "moving" whenever agent has a destination (target set by move_to); don't rely only on last_action_type
+  if (targetLat != null && targetLng != null) {
     const isWaterCarrier = type === 'water_drone' || type === 'heavy_tanker';
     const empty = (waterCapacity ?? 0) > 0 && (waterLevel ?? 0) <= 0;
     if (isWaterCarrier && empty) return 'moving to refill';

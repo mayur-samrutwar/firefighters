@@ -133,6 +133,32 @@ export async function POST(req: NextRequest) {
       updates.target_lat = Math.max(-90, Math.min(90, lat));
       updates.target_lng = ((lng % 360) + 360) % 360;
       if (updates.target_lng as number > 180) (updates.target_lng as number) -= 360;
+
+      // Optional: post to bulletin in the same request (e.g. need_water while heading to refill)
+      const pb = action.postBulletin as { postType?: string; message?: string; lat?: number; lng?: number } | undefined;
+      if (pb && typeof pb === "object" && (typeof pb.postType === "string" || typeof pb.message === "string")) {
+        const postType = typeof pb.postType === "string" ? pb.postType.trim() : "";
+        let message = typeof pb.message === "string" ? pb.message.trim() : "";
+        const blat = pb.lat != null && Number.isFinite(Number(pb.lat)) ? Number(pb.lat) : Number(agent.lat ?? 0);
+        const blng = pb.lng != null && Number.isFinite(Number(pb.lng)) ? Number(pb.lng) : Number(agent.lng ?? 0);
+        if (!message) {
+          const loc = ` at ${blat.toFixed(1)}°, ${blng.toFixed(1)}°`;
+          const defaults: Record<string, string> = {
+            need_water: `Need water${loc}`,
+            need_charge: `Need charge${loc}`,
+            heading_to: "Heading to target",
+          };
+          message = defaults[postType] ?? "Message";
+        }
+        const { data: gs } = await supabase.from("game_state").select("tick").eq("id", 1).single();
+        const btick = Number(gs?.tick ?? 0);
+        const payload: Record<string, unknown> = { postType: postType || "message", message, lat: blat, lng: blng };
+        await supabase.from("bulletin").insert({
+          agent_id: agentId,
+          message: JSON.stringify(payload),
+          tick: btick,
+        });
+      }
     } else if (actionType === "change_route" && profile === "satellite") {
       const route = action.route;
       if (!Array.isArray(route) || route.length < 2) {
