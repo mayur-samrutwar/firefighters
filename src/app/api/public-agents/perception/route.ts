@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     const { data: agent, error: agentError } = await supabase
       .from("agents")
-      .select("id, type, lat, lng, battery_pct, name, wallet, secret_hash, paid_for_life_wei")
+      .select("id, type, lat, lng, battery_pct, name, wallet, secret_hash, paid_for_life_wei, water_level, water_capacity")
       .eq("id", agentId)
       .single();
 
@@ -170,8 +170,8 @@ export async function POST(req: NextRequest) {
           lat: selfLat,
           lng: selfLng,
           batteryPercentage: agent.battery_pct,
-          waterLevel: 0,
-          waterCapacity: 0,
+          waterLevel: agent.water_level ?? 0,
+          waterCapacity: agent.water_capacity ?? 0,
         },
         nearbyFires: fires,
         nearbyAgents: otherAgents,

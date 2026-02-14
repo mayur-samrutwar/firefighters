@@ -46,9 +46,7 @@ All commands are run from the project root:
 - **Development server**: `npm run dev`
 - **Build for production**: `npm run build`
 - **Start production server**: `npm run start`
-- **Run continuous agent** (ticks every ~30s): `npm run agent`
-- **Run a single tick** (useful for testing): `npm run agent:once`
-- **Agent against port 3001**: `npm run agent:3001`
+- **Public agent tests**: `npm run test:public-agents`, `npm run test:public-agents-perception`, `npm run test:public-agents-act`, etc.
 
 ## Run Locally
 
@@ -57,79 +55,33 @@ npm install
 npm run dev
 ```
 
-Then open [`https://firefighters-six.vercel.app`](https://firefighters-six.vercel.app).
+Then open your app URL (e.g. [http://localhost:3000](http://localhost:3000)).
 
-**To see fires**, run the agent in a separate terminal:
+The **world tick** (fires spawning, fire growth, earth life decay, agent movement) runs inside Supabase. Apply the migrations in `supabase/migrations/` and ensure `pg_cron` is enabled; the scheduled job runs `run_ticks()` every minute. No separate script or HTTP tick API is needed.
 
-```bash
-# Make sure TICK_API_SECRET is set in your environment
-export TICK_API_SECRET=your-secret-token-here
-
-npm run agent              # if app is on port 3000
-npm run agent:3001         # if app is on port 3001
-```
-
-The agent POSTs to `/api/tick` every ~30s. For debugging, open [`https://firefighters-six.vercel.app/api/debug`](https://firefighters-six.vercel.app/api/debug) to verify that the server has active fires and agent state.
-
-**Note:** The `/api/tick` endpoint requires authentication via `Authorization: Bearer <TICK_API_SECRET>` header. Make sure to set `TICK_API_SECRET` in your environment variables (`.env.local` for local development, or in your deployment platform's environment settings).
+For debugging, open `/api/debug` (if available) to verify fires and agent state.
 
 ## Deploy
 
-This is a standard Next.js app and can be deployed to Vercel, Netlify, or any Next.js-compatible host. Make sure your deployment keeps the Node server running so the `/api/tick` and `/api/debug` routes remain available.
+This is a standard Next.js app and can be deployed to Vercel, Netlify, or any Next.js-compatible host.
 
-### Supabase Cron Job (Recommended for Production)
+### World tick (Supabase cron)
 
-Instead of running the external `agent-tick.mjs` script, you can use Supabase's `pg_cron` extension to automatically call `/api/tick` every 10 seconds.
+The game advances via **Supabase `pg_cron`**: every minute it runs `SELECT public.run_ticks();`, which runs `game_tick()` (fires, events, earth life decay) and `agent_movement_tick()` (agent movement). There is no HTTP tick endpoint; the tick is entirely in the database.
 
 **Setup:**
 
-1. **Enable extensions** (already done if you ran `schema-cron.sql`):
-   - Go to Supabase Dashboard → Database → Extensions
-   - Enable `pg_cron` and `pg_net`
-
-2. **Generate a secure secret token**:
+1. **Enable extensions** (Supabase Dashboard → Database → Extensions): enable `pg_cron`.
+2. **Run migrations** in order so that `game_tick`, `agent_movement_tick`, and `run_ticks` exist, and the cron job is scheduled:
    ```bash
-   openssl rand -hex 32
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/migrations/20250214_tick_cron.sql
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/migrations/20250214_tick_agent_movement.sql
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/migrations/20250215_agent_movement_shortest_path.sql
+   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/migrations/20250215_run_ticks_include_movement.sql
    ```
-   Save this token - you'll need it for both your environment variables and the database.
+   (Or run your full migration stack so these are applied.)
 
-3. **Set the secret in your environment** (`.env.local`):
-   ```bash
-   TICK_API_SECRET=your-generated-secret-here
-   ```
-   Make sure to also set this in your deployment platform (Vercel, etc.) as an environment variable.
-
-4. **Run the cron schema**:
-   ```bash
-   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -f supabase/schema-cron.sql
-   ```
-
-5. **Set your production API URL and secret**:
-   ```bash
-   # Set API URL
-   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -c "SELECT set_tick_api_url('https://your-app.vercel.app');"
-   
-   # Set API secret (use the same secret from step 2)
-   PGPASSWORD="your-db-password" psql -h db.your-project.supabase.co -p 5432 -U postgres -d postgres -c "SELECT set_tick_api_secret('your-generated-secret-here');"
-   ```
-
-**Security Note:** The `/api/tick` endpoint is now protected by a secret token. Only requests with the correct `Authorization: Bearer <secret>` header will be accepted. This prevents unauthorized users from manually triggering ticks.
-
-**Manage cron jobs:**
-
-```bash
-# Check status
-node scripts/manage-supabase-cron.mjs status
-
-# Enable/disable
-node scripts/manage-supabase-cron.mjs enable
-node scripts/manage-supabase-cron.mjs disable
-
-# Update API URL
-node scripts/manage-supabase-cron.mjs set-url https://new-url.com
-```
-
-The cron jobs run every 10 seconds automatically, so you don't need to keep the `agent-tick.mjs` script running.
+The scheduled job name is `game_tick_every_minute`; it runs every minute. No API URL or tick secret is required for the world tick.
 
 ## Folder Overview
 

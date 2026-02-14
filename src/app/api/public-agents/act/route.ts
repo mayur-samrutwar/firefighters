@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
 import { verifySecret } from "@/lib/agent-auth";
 import { getAgentPayment } from "@/lib/treasury";
-import { isActionAllowedForProfile } from "@/data/actions";
+import { isActionAllowedForProfile, getBatteryCostPercent } from "@/data/actions";
 import type { AgentProfile } from "@/data/actions";
 
 export async function POST(req: NextRequest) {
@@ -107,6 +107,13 @@ export async function POST(req: NextRequest) {
     }
 
     const updates: Record<string, unknown> = { last_action_type: actionType };
+
+    // One-time battery cost (e.g. view_global_state 5%)
+    const batteryCost = getBatteryCostPercent(actionType);
+    if (batteryCost > 0) {
+      const currentBattery = agent.battery_pct ?? 100;
+      updates.battery_pct = Math.max(0, currentBattery - batteryCost);
+    }
 
     if (actionType === "move_to") {
       const lat = action.lat != null ? Number(action.lat) : undefined;
