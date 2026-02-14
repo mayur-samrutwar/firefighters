@@ -365,10 +365,22 @@ export default function GlobeViewer({
       sprite.scale.set(1.8, 1.8, 1.8);
       group.add(sprite);
 
-      // Hit disc for ring hover
+      // Visible scan radius ring (globe's ringsData uses propagation, so with speed 0 it stays invisible)
       if (agent.searchRadius) {
-        const hitRadius = searchRadiusToGlobeUnits(agent.searchRadius);
-        const hitGeom = new THREE.CircleGeometry(hitRadius, 32);
+        const ringRadius = searchRadiusToGlobeUnits(agent.searchRadius);
+        const ringGeom = new THREE.RingGeometry(ringRadius * 0.7, ringRadius, 48);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0x3b82f6,
+          transparent: true,
+          opacity: 0.22,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+        ringMesh.rotation.x = -Math.PI / 2;
+        group.add(ringMesh);
+        // Hit disc for hover (invisible)
+        const hitGeom = new THREE.CircleGeometry(ringRadius, 32);
         const hitMat = new THREE.MeshBasicMaterial({
           transparent: true,
           opacity: 0,

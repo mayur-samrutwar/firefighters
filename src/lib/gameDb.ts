@@ -104,7 +104,8 @@ function rowToAgent(r: Row): Agent {
     type: r.type,
     displayName: r.display_name ?? undefined,
     batteryPercentage: r.battery_percentage,
-    deployedAt: r.deployed_at,
+    // Supabase/Postgres may return bigint as string; satellite position needs a number
+    deployedAt: r.deployed_at != null ? Number(r.deployed_at) : Date.now(),
     playerId: r.player_id ?? undefined,
     controlMode: r.control_mode ?? 'internal',
     pendingExternalAction: r.pending_external_action ?? null,
