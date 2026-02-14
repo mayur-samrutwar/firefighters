@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "deploy": "vercel deploy --prod",
     "lint": "eslint",
     "agent": "node scripts/agent-tick.mjs",
     "agent:once": "RUN_ONCE=1 node scripts/agent-tick.mjs",
