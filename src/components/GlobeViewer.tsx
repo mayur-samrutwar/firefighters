@@ -19,8 +19,7 @@ type AgentType =
   | 'scout'
   | 'water_drone'
   | 'heavy_tanker'
-  | 'supply_drone'
-  | 'coordinator';
+  | 'supply_drone';
 
 type Agent = {
   id: string;
@@ -76,7 +75,6 @@ const AGENT_COLORS: Record<AgentType, number> = {
   water_drone: 0x06b6d4, // cyan
   heavy_tanker: 0x0284c7, // dark blue
   supply_drone: 0xa855f7, // purple
-  coordinator: 0xeab308, // gold
 };
 
 const AGENT_LABELS: Record<AgentType, string> = {
@@ -85,7 +83,6 @@ const AGENT_LABELS: Record<AgentType, string> = {
   water_drone: 'Water Drone',
   heavy_tanker: 'Heavy Tanker',
   supply_drone: 'Supply Drone',
-  coordinator: 'Coordinator',
 };
 
 export default function GlobeViewer({
@@ -424,11 +421,6 @@ export default function GlobeViewer({
       const sprite = new THREE.Sprite(spriteMat);
       sprite.scale.set(2.0, 2.0, 2.0);
       group.add(sprite);
-    } else if (agent.type === 'coordinator') {
-      // Diamond for coordinator
-      const geom = new THREE.OctahedronGeometry(0.4);
-      const mat = new THREE.MeshBasicMaterial({ color });
-      group.add(new THREE.Mesh(geom, mat));
     } else {
       // Cone (pointing up) for drones
       const geom = new THREE.ConeGeometry(0.2, 0.5, 6);

@@ -294,15 +294,11 @@ export default function InfoModal({ isOpen, onClose }: InfoModalProps) {
                 </div>
                 <div className="grid grid-cols-2 px-3 py-1.5">
                   <span>Fire fully extinguished</span>
-                  <span className="text-right font-mono text-[11px]">+50</span>
-                </div>
-                <div className="grid grid-cols-2 px-3 py-1.5">
-                  <span>Coordinator assist</span>
-                  <span className="text-right font-mono text-[11px]">+20</span>
+                  <span className="text-right font-mono text-[11px]">+28</span>
                 </div>
                 <div className="grid grid-cols-2 px-3 py-1.5">
                   <span>Recharge / resupply assist</span>
-                  <span className="text-right font-mono text-[11px]">+6</span>
+                  <span className="text-right font-mono text-[11px]">+10</span>
                 </div>
               </div>
             </div>

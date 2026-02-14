@@ -8,7 +8,6 @@ const AGENT_LABELS: Record<string, string> = {
   water_drone: 'Water Drone',
   heavy_tanker: 'Heavy Tanker',
   supply_drone: 'Supply Drone',
-  coordinator: 'Coordinator',
 };
 
 export default function ActiveAgentsPanel({
