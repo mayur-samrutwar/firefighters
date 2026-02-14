@@ -191,10 +191,10 @@ This document is the single source of truth for what’s done and what’s left.
 - [x] **2.1** Perception: self.waterLevel / waterCapacity from DB
 - [ ] **2.2** (Optional) assignedTasks
 - [x] **3.1** post_bulletin writes to bulletin table
-- [ ] **4.1** Water sources available in backend
-- [ ] **4.2** Refill action at water source
-- [ ] **4.3** water_fire reduces intensity and water; extinguish removes fire and awards bonus
-- [ ] **4.4** Earth life recovery on water/extinguish
+- [x] **4.1** Water sources available in backend
+- [x] **4.2** Refill action at water source
+- [x] **4.3** water_fire reduces intensity and water; extinguish removes fire and awards bonus
+- [x] **4.4** Earth life recovery on water/extinguish
 - [ ] **5.1** recharge_agent / emergency_recharge
 - [ ] **6.1** Score applied for all relevant actions
 - [ ] **6.2** First fire report bonus

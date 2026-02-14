@@ -3,6 +3,11 @@
  * ~40 points spread across the globe: oceans, seas, major lakes, key rivers.
  */
 
+import { angularDistanceDeg } from "@/utils/geo";
+
+/** Max distance (degrees) to consider an agent "at" a water source for refill. */
+export const WATER_SOURCE_RADIUS_DEG = 2.5;
+
 export type WaterSource = {
   id: string;
   lat: number;
@@ -57,3 +62,13 @@ export const WATER_SOURCES: WaterSource[] = [
   { id: "st-lawrence-mouth", lat: 49, lng: -70, name: "St. Lawrence (mouth)" },
   { id: "murray-mouth", lat: -35, lng: 139, name: "Murray (mouth)" },
 ];
+
+/** True if (lat, lng) is within WATER_SOURCE_RADIUS_DEG of any water source. */
+export function isAtWaterSource(lat: number, lng: number): boolean {
+  for (const src of WATER_SOURCES) {
+    if (angularDistanceDeg(lat, lng, src.lat, src.lng) <= WATER_SOURCE_RADIUS_DEG) {
+      return true;
+    }
+  }
+  return false;
+}

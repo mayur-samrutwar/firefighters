@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
 import { verifySecret } from "@/lib/agent-auth";
 import { getAgentPayment } from "@/lib/treasury";
-import { isActionAllowedForProfile, getBatteryCostPercent } from "@/data/actions";
+import { isActionAllowedForProfile, getBatteryCostPercent, getScoreForAction, SCORE_EXTINGUISH } from "@/data/actions";
 import type { AgentProfile } from "@/data/actions";
+import { isAtWaterSource } from "@/data/water-sources";
+import { getWaterCapacity } from "@/data/profile-specs";
+import { angularDistanceDeg } from "@/utils/geo";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     const { data: agent, error: agentError } = await supabase
       .from("agents")
-      .select("id, type, wallet, secret_hash, battery_pct, paid_for_life_wei")
+      .select("id, type, wallet, secret_hash, battery_pct, paid_for_life_wei, lat, lng, water_level, water_capacity, score")
       .eq("id", agentId)
       .single();
 
@@ -149,6 +152,108 @@ export async function POST(req: NextRequest) {
     } else if (actionType === "sit_idle" || actionType === "abort_current") {
       updates.target_lat = null;
       updates.target_lng = null;
+    } else if (actionType === "refill") {
+      const agentLat = Number(agent.lat ?? 0);
+      const agentLng = Number(agent.lng ?? 0);
+      if (!isAtWaterSource(agentLat, agentLng)) {
+        return NextResponse.json(
+          { error: "refill requires being at a water source" },
+          { status: 400 }
+        );
+      }
+      const capacity = getWaterCapacity(profile);
+      if (capacity <= 0) {
+        return NextResponse.json(
+          { error: "refill not allowed for this profile" },
+          { status: 400 }
+        );
+      }
+      updates.water_level = capacity;
+    } else if (actionType === "water_fire") {
+      const NEAR_FIRE_DEG = 2;
+      const EARTH_LIFE_PER_WATER = 0.5;
+      const EARTH_LIFE_EXTINGUISH = 3;
+
+      const agentLat = Number(agent.lat ?? 0);
+      const agentLng = Number(agent.lng ?? 0);
+      const currentWater = Number(agent.water_level ?? 0);
+      if (currentWater <= 0) {
+        return NextResponse.json(
+          { error: "water_fire requires water (refill at a water source first)" },
+          { status: 400 }
+        );
+      }
+
+      const { data: firesRows } = await supabase
+        .from("fires")
+        .select("id, lat, lng, intensity");
+
+      const nearFires = (firesRows ?? [])
+        .map((f) => ({
+          ...f,
+          lat: Number(f.lat),
+          lng: Number(f.lng),
+          intensity: Number(f.intensity ?? 0),
+          dist: angularDistanceDeg(agentLat, agentLng, Number(f.lat), Number(f.lng)),
+        }))
+        .filter((f) => f.dist <= NEAR_FIRE_DEG)
+        .sort((a, b) => b.intensity - a.intensity);
+
+      const target = nearFires[0];
+      if (!target) {
+        return NextResponse.json(
+          { error: "water_fire requires being near a fire (within ~2°)" },
+          { status: 400 }
+        );
+      }
+
+      const newIntensity = Math.max(0, target.intensity - 1);
+      const newWaterLevel = Math.max(0, currentWater - 1);
+      const extinguished = newIntensity === 0;
+      const scoreAdd = getScoreForAction("water_fire") + (extinguished ? SCORE_EXTINGUISH : 0);
+      const earthRecovery = extinguished ? EARTH_LIFE_EXTINGUISH : EARTH_LIFE_PER_WATER;
+
+      updates.water_level = newWaterLevel;
+      updates.score = (Number(agent.score ?? 0) + scoreAdd) as number;
+
+      if (extinguished) {
+        const { error: delErr } = await supabase.from("fires").delete().eq("id", target.id);
+        if (delErr) {
+          return NextResponse.json(
+            { error: "Failed to remove extinguished fire" },
+            { status: 500 }
+          );
+        }
+      } else {
+        const { error: updErr } = await supabase
+          .from("fires")
+          .update({ intensity: newIntensity })
+          .eq("id", target.id);
+        if (updErr) {
+          return NextResponse.json(
+            { error: "Failed to update fire intensity" },
+            { status: 500 }
+          );
+        }
+      }
+
+      const { data: gs } = await supabase
+        .from("game_state")
+        .select("earth_life_pct")
+        .eq("id", 1)
+        .single();
+      const currentLife = Number(gs?.earth_life_pct ?? 100);
+      const newLife = Math.min(100, Math.max(0, currentLife + earthRecovery));
+      const { error: lifeErr } = await supabase
+        .from("game_state")
+        .update({ earth_life_pct: Math.round(newLife) })
+        .eq("id", 1);
+      if (lifeErr) {
+        return NextResponse.json(
+          { error: "Failed to update earth life" },
+          { status: 500 }
+        );
+      }
     } else if (actionType === "post_bulletin") {
       const postType = typeof action.postType === "string" ? action.postType.trim() : "";
       const message = typeof action.message === "string" ? action.message.trim() : "";
