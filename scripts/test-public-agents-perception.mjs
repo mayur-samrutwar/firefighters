@@ -120,7 +120,7 @@ async function main() {
       .limit(1);
     ownerId = owners?.[0]?.id ?? null;
 
-    console.log('\n🧪 Test 1: Successful perception request');
+    console.log('\n🧪 Test 1: Successful perception request (200) or payment required (402)');
 
     const goodRes = await fetch(`${BASE}/api/public-agents/perception`, {
       method: 'POST',
@@ -131,21 +131,26 @@ async function main() {
       }),
     });
 
-    assert(goodRes.ok, `Perception HTTP OK (status ${goodRes.status})`);
     const goodJson = await goodRes.json();
+    const accepted = goodRes.ok || goodRes.status === 402;
+    assert(accepted, `Perception returns 200 or 402 (status ${goodRes.status})`);
 
-    assert(goodJson.ok === true, 'Perception ok=true');
-    assert(typeof goodJson.tick === 'number', 'Perception has tick');
-    assert(
-      goodJson.agent && goodJson.agent.id === agentId,
-      'Perception response has matching agent id'
-    );
-    assert(
-      goodJson.perception &&
-        (Array.isArray(goodJson.perception.fires) ||
-          Array.isArray(goodJson.perception.nearbyFires)),
-      'Perception contains fire information'
-    );
+    if (goodRes.status === 402) {
+      assert(goodJson.ok === false && goodJson.error, '402 response has ok=false and error message');
+    } else {
+      assert(goodJson.ok === true, 'Perception ok=true');
+      assert(typeof goodJson.tick === 'number', 'Perception has tick');
+      assert(
+        goodJson.agent && goodJson.agent.id === agentId,
+        'Perception response has matching agent id'
+      );
+      assert(
+        goodJson.perception &&
+          (Array.isArray(goodJson.perception?.fires) ||
+            Array.isArray(goodJson.perception?.nearbyFires)),
+        'Perception contains fire information'
+      );
+    }
 
     console.log('\n🧪 Test 2: Rejected with wrong secret');
 

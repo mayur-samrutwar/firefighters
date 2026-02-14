@@ -69,8 +69,11 @@ async function testFireFields() {
   await tick({ lat: 10, lng: 20 });
 
   const state = await getState();
-  assert(state.fires.length >= 1, 'Fire exists');
-
+  if (state.fires.length < 1) {
+    assert(false, 'Fire exists');
+    return;
+  }
+  assert(true, 'Fire exists');
   const fire = state.fires[0];
   assert(typeof fire.intensity === 'number', 'Fire has intensity field');
   assert(fire.intensity === 1, 'New fire starts at intensity 1');
@@ -90,6 +93,10 @@ async function testWildfireGrowth() {
   // (70% wildfire, 15% chemical → 85% chance for INTENSITY_GROW_INTERVAL=2)
   await tick({ lat: 50, lng: 50 });
   let state = await getState();
+  if (!state.fires?.length) {
+    assert(false, 'Fire exists for growth test');
+    return;
+  }
   const fire = state.fires[0];
   const fireId = fire.id;
 
@@ -133,7 +140,7 @@ async function testFlashFireGrowth() {
     await reset();
     await tick({ lat: 20, lng: 30 });
     const state = await getState();
-    const f = state.fires[0];
+    const f = state.fires?.[0];
     if (f && f.fireType === 'flash') {
       flashFire = f;
       break;

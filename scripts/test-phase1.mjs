@@ -317,7 +317,11 @@ async function testFireExpiryCleanup() {
   const originalFire = state.fires.find(
     (f) => Math.abs(f.lat - 0) < 1 && Math.abs(f.lng - 0.5) < 1
   );
-  assert(originalFire !== undefined, 'Original fire exists near expected location');
+  if (!originalFire) {
+    assert(false, 'Original fire exists near expected location');
+    return;
+  }
+  assert(true, 'Original fire exists near expected location');
   const originalFireId = originalFire.id;
 
   // Allow a few ticks for the first detection, skipping ticks where a solar flare is active
@@ -404,13 +408,17 @@ async function testUpdatesInApiState() {
   await tick({ lat: 0, lng: 0.5 });
 
   const state2 = await getState();
-  assert(state2.updates.length >= 1, 'updates populated after detection');
+  if (state2.updates.length < 1) {
+    assert(false, 'updates populated after detection');
+    return;
+  }
+  assert(true, 'updates populated after detection');
   const evt = state2.updates[0];
-  assert(typeof evt.id === 'string', 'Event has string id');
-  assert(typeof evt.tick === 'number', 'Event has tick number');
-  assert(typeof evt.type === 'string', 'Event has type string');
-  assert(typeof evt.lat === 'number', 'Event has lat');
-  assert(typeof evt.lng === 'number', 'Event has lng');
+  assert(typeof evt?.id === 'string', 'Event has string id');
+  assert(typeof evt?.tick === 'number', 'Event has tick number');
+  assert(typeof evt?.type === 'string', 'Event has type string');
+  assert(typeof evt?.lat === 'number', 'Event has lat');
+  assert(typeof evt?.lng === 'number', 'Event has lng');
 }
 
 // ─── Test 11: Boundary — fire exactly at searchRadius edge ──

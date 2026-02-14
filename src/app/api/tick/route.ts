@@ -29,9 +29,17 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
 
+    // Accept optional new fire: fireLat/fireLng or lat/lng (phase tests use lat/lng)
+    const fireLat = body.fireLat ?? body.lat;
+    const fireLng = body.fireLng ?? body.lng;
+    const addFire = body.addFire !== false;
     const newFire =
-      typeof body.fireLat === 'number' && typeof body.fireLng === 'number'
-        ? { lat: body.fireLat, lng: body.fireLng }
+      addFire &&
+      typeof fireLat === 'number' &&
+      typeof fireLng === 'number' &&
+      Number.isFinite(fireLat) &&
+      Number.isFinite(fireLng)
+        ? { lat: fireLat, lng: fireLng }
         : undefined;
 
     await processTick(newFire);

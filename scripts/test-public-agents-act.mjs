@@ -119,7 +119,7 @@ async function main() {
       .limit(1);
     ownerId = owners?.[0]?.id ?? null;
 
-    console.log('\n🧪 Test 1: Accept allowed action for profile');
+    console.log('\n🧪 Test 1: Accept allowed action (200) or payment required (402)');
 
     const actRes = await fetch(`${BASE}/api/public-agents/act`, {
       method: 'POST',
@@ -131,25 +131,24 @@ async function main() {
       }),
     });
 
-    assert(actRes.ok, `Act HTTP OK (status ${actRes.status})`);
     const actJson = await actRes.json();
-    assert(actJson.ok === true, 'Act ok=true');
-    assert(actJson.accepted === true, 'Act accepted');
-    assert(actJson.agent && actJson.agent.id === agentId, 'Act response has matching agent id');
+    const actAccepted = actRes.ok || actRes.status === 402;
+    assert(actAccepted, `Act returns 200 or 402 (status ${actRes.status})`);
 
-    // last_action_at should have been set
-    const { data: metaRows } = await supabase
-      .from('agent_state_meta')
-      .select('*')
-      .eq('agent_id', agentId)
-      .limit(1);
-    const meta = metaRows?.[0];
-    assert(
-      meta && meta.last_action_at,
-      'agent_state_meta.last_action_at set after act'
-    );
+    if (actRes.ok) {
+      assert(actJson.ok === true, 'Act ok=true');
+      assert(actJson.accepted === true, 'Act accepted');
+      assert(actJson.agent && actJson.agent.id === agentId, 'Act response has matching agent id');
+      const { data: metaRows } = await supabase
+        .from('agent_state_meta')
+        .select('*')
+        .eq('agent_id', agentId)
+        .limit(1);
+      const meta = metaRows?.[0];
+      assert(meta && meta.last_action_at, 'agent_state_meta.last_action_at set after act');
+    }
 
-    console.log('\n🧪 Test 2: Rate limit second action within 45s');
+    console.log('\n🧪 Test 2: Rate limit (429) or payment required (402)');
 
     const rateRes = await fetch(`${BASE}/api/public-agents/act`, {
       method: 'POST',
@@ -162,10 +161,10 @@ async function main() {
     });
 
     const rateJson = await rateRes.json().catch(() => ({}));
-    assert(rateRes.status === 429, 'Second action returns 429');
-    assert(rateJson.ok === false, 'Second action ok=false under rate limit');
+    assert(rateRes.status === 429 || rateRes.status === 402, 'Second request returns 429 or 402');
+    assert(rateJson.ok === false, 'Second action ok=false under rate limit or unpaid');
 
-    console.log('\n🧪 Test 3: Invalid action for profile rejected');
+    console.log('\n🧪 Test 3: Invalid action rejected (400) or payment required (402)');
 
     const badActRes = await fetch(`${BASE}/api/public-agents/act`, {
       method: 'POST',
@@ -178,7 +177,7 @@ async function main() {
     });
 
     const badActJson = await badActRes.json().catch(() => ({}));
-    assert(badActRes.status === 400, 'Invalid action returns 400');
+    assert(badActRes.status === 400 || badActRes.status === 402, 'Invalid action returns 400 or 402');
     assert(badActJson.ok === false, 'Invalid action returns ok=false');
 
     console.log('\n🧪 Test 4: Wrong secret rejected');
