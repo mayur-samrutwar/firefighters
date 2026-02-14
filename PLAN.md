@@ -190,7 +190,7 @@ This document is the single source of truth for what’s done and what’s left.
 - [x] **1.2** One-time battery cost on act (view_global_state 5%)
 - [x] **2.1** Perception: self.waterLevel / waterCapacity from DB
 - [ ] **2.2** (Optional) assignedTasks
-- [ ] **3.1** post_bulletin writes to bulletin table
+- [x] **3.1** post_bulletin writes to bulletin table
 - [ ] **4.1** Water sources available in backend
 - [ ] **4.2** Refill action at water source
 - [ ] **4.3** water_fire reduces intensity and water; extinguish removes fire and awards bonus

@@ -79,11 +79,24 @@ export async function GET() {
       strong_winds: "Strong winds",
       equipment_malfunction: "Equipment malfunction",
     };
+    const formatBulletinMessage = (raw: string): string => {
+      try {
+        const o = JSON.parse(raw) as { postType?: string; message?: string; lat?: number; lng?: number };
+        if (o && typeof o.message === "string") {
+          const prefix = o.postType ? `[${o.postType}] ` : "";
+          const loc = o.lat != null && o.lng != null ? ` @ ${o.lat.toFixed(1)}°, ${o.lng.toFixed(1)}°` : "";
+          return `${prefix}${o.message}${loc}`;
+        }
+      } catch {
+        /* not JSON, use as-is */
+      }
+      return raw;
+    };
     const activityBulletin = bulletin.map((b) => ({
       id: `bulletin-${b.id}`,
       kind: "bulletin" as const,
       tick: b.tick,
-      message: b.message,
+      message: formatBulletinMessage(String(b.message ?? "")),
     }));
     const activityFires = fires.map((f) => ({
       id: `fire-${f.id}`,

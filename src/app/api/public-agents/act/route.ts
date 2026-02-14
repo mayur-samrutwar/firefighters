@@ -149,6 +149,45 @@ export async function POST(req: NextRequest) {
     } else if (actionType === "sit_idle" || actionType === "abort_current") {
       updates.target_lat = null;
       updates.target_lng = null;
+    } else if (actionType === "post_bulletin") {
+      const postType = typeof action.postType === "string" ? action.postType.trim() : "";
+      const message = typeof action.message === "string" ? action.message.trim() : "";
+      if (!message) {
+        return NextResponse.json(
+          { error: "post_bulletin requires message" },
+          { status: 400 }
+        );
+      }
+      const lat = action.lat != null && Number.isFinite(Number(action.lat)) ? Number(action.lat) : undefined;
+      const lng = action.lng != null && Number.isFinite(Number(action.lng)) ? Number(action.lng) : undefined;
+      const fireId = action.fireId != null ? String(action.fireId) : undefined;
+      const targetAgentId = action.targetAgentId != null ? String(action.targetAgentId) : undefined;
+
+      const { data: gameState } = await supabase
+        .from("game_state")
+        .select("tick")
+        .eq("id", 1)
+        .single();
+
+      const tick = Number(gameState?.tick ?? 0);
+      const bulletinPayload: Record<string, unknown> = { postType: postType || "message", message };
+      if (lat != null) bulletinPayload.lat = lat;
+      if (lng != null) bulletinPayload.lng = lng;
+      if (fireId != null) bulletinPayload.fireId = fireId;
+      if (targetAgentId != null) bulletinPayload.targetAgentId = targetAgentId;
+
+      const { error: bulletinError } = await supabase.from("bulletin").insert({
+        agent_id: agentId,
+        message: JSON.stringify(bulletinPayload),
+        tick,
+      });
+
+      if (bulletinError) {
+        return NextResponse.json(
+          { error: "Failed to post to bulletin" },
+          { status: 500 }
+        );
+      }
     }
 
     await supabase
