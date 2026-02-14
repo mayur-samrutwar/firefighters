@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
 import { verifySecret } from "@/lib/agent-auth";
 import { getAgentPayment } from "@/lib/treasury";
+import { isActionAllowedForProfile } from "@/data/actions";
+import type { AgentProfile } from "@/data/actions";
 
 export async function POST(req: NextRequest) {
   try {
@@ -93,13 +95,65 @@ export async function POST(req: NextRequest) {
         .eq("id", agentId);
     }
 
-    // Actions not implemented yet; accept and return ok
     const action = body.action ?? {};
+    const actionType = (action.type ?? "no_op") as string;
+    const profile = agent.type as AgentProfile;
+
+    if (actionType !== "no_op" && !isActionAllowedForProfile(actionType, profile)) {
+      return NextResponse.json(
+        { error: `Action ${actionType} not allowed for profile ${profile}` },
+        { status: 400 }
+      );
+    }
+
+    const updates: Record<string, unknown> = { last_action_type: actionType };
+
+    if (actionType === "move_to") {
+      const lat = action.lat != null ? Number(action.lat) : undefined;
+      const lng = action.lng != null ? Number(action.lng) : undefined;
+      if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return NextResponse.json(
+          { error: "move_to requires lat and lng" },
+          { status: 400 }
+        );
+      }
+      updates.target_lat = Math.max(-90, Math.min(90, lat));
+      updates.target_lng = ((lng % 360) + 360) % 360;
+      if (updates.target_lng as number > 180) (updates.target_lng as number) -= 360;
+    } else if (actionType === "change_route" && profile === "satellite") {
+      const route = action.route;
+      if (!Array.isArray(route) || route.length < 2) {
+        return NextResponse.json(
+          { error: "change_route requires route: [[lat,lng], ...] with at least 2 points" },
+          { status: 400 }
+        );
+      }
+      const waypoints = route.map((p: unknown) => {
+        const pt = Array.isArray(p) ? p : [];
+        const la = Number(pt[0]);
+        const ln = Number(pt[1]);
+        return [Number.isFinite(la) ? la : 0, Number.isFinite(ln) ? ln : 0];
+      });
+      updates.route = waypoints;
+      updates.route_index = 0;
+      updates.route_t = 0;
+      updates.target_lat = null;
+      updates.target_lng = null;
+    } else if (actionType === "sit_idle" || actionType === "abort_current") {
+      updates.target_lat = null;
+      updates.target_lng = null;
+    }
+
+    await supabase
+      .from("agents")
+      .update(updates)
+      .eq("id", agentId);
+
     return NextResponse.json({
       ok: true,
       accepted: true,
       agent: { id: agent.id, profile: agent.type },
-      action: { type: action.type ?? "noop" },
+      action: { type: actionType },
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Act failed";

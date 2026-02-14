@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 
@@ -31,6 +32,12 @@ export type GameState = {
     displayName?: string;
     wallet?: string;
     created_at: string;
+    target_lat?: number;
+    target_lng?: number;
+    water_level?: number;
+    water_capacity?: number;
+    last_action_type?: string;
+    speed?: number;
   }>;
   bulletin: Array<{
     id: string;
@@ -67,11 +74,17 @@ const defaultState: GameState = {
 
 const GameStateContext = createContext<{
   state: GameState;
+  /** Previous agents snapshot for smooth interpolation (same shape as state.agents). */
+  previousAgents: GameState['agents'];
+  /** Timestamp (ms) when state was last fetched. */
+  lastFetchTime: number;
   isLoading: boolean;
   error: string | null;
   refetch: () => void;
 }>({
   state: defaultState,
+  previousAgents: [],
+  lastFetchTime: 0,
   isLoading: true,
   error: null,
   refetch: () => {},
@@ -81,8 +94,12 @@ const POLL_MS = 4000;
 
 export function GameStateProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GameState>(defaultState);
+  const [previousAgents, setPreviousAgents] = useState<GameState['agents']>([]);
+  const [lastFetchTime, setLastFetchTime] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const fetchState = useCallback(async () => {
     try {
@@ -95,11 +112,14 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
+      const nextAgents = data.agents ?? [];
+      setPreviousAgents(stateRef.current.agents);
+      setLastFetchTime(Date.now());
       setState({
         tick: data.tick ?? 0,
         earth_life_pct: data.earth_life_pct ?? 100,
         fires: data.fires ?? [],
-        agents: data.agents ?? [],
+        agents: nextAgents,
         bulletin: data.bulletin ?? [],
         world_events: data.world_events ?? [],
         activity: data.activity ?? [],
@@ -120,7 +140,14 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
 
   return (
     <GameStateContext.Provider
-      value={{ state, isLoading, error, refetch: fetchState }}
+      value={{
+        state,
+        previousAgents,
+        lastFetchTime,
+        isLoading,
+        error,
+        refetch: fetchState,
+      }}
     >
       {children}
     </GameStateContext.Provider>

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { ethers } from "ethers";
 import { supabase } from "@/lib/supabase-server";
 import { hashSecret, generateSecret } from "@/lib/agent-auth";
+import {
+  getWaterCapacity,
+  getDefaultSatelliteRouteByIndex,
+  getSatelliteRouteIndexForAgent,
+} from "@/data/profile-specs";
+import type { AgentProfile } from "@/data/actions";
 
 const PROFILES = ["satellite", "scout", "water_drone", "heavy_tanker", "supply_drone"] as const;
 
@@ -39,18 +45,23 @@ export async function POST(req: NextRequest) {
     const secret = generateSecret();
     const secretHash = hashSecret(secret);
 
+    const waterCapacity = getWaterCapacity(profile as AgentProfile);
+    const insertPayload: Record<string, unknown> = {
+      name: name.trim(),
+      wallet: address,
+      type: profile,
+      lat: 0,
+      lng: 0,
+      battery_pct: 100,
+      score: 0,
+      secret_hash: secretHash,
+      water_level: 0,
+      water_capacity: waterCapacity,
+    };
+
     const { data: agent, error } = await supabase
       .from("agents")
-      .insert({
-        name: name.trim(),
-        wallet: address,
-        type: profile,
-        lat: 0,
-        lng: 0,
-        battery_pct: 100,
-        score: 0,
-        secret_hash: secretHash,
-      })
+      .insert(insertPayload)
       .select("id, name, type")
       .single();
 
@@ -59,6 +70,21 @@ export async function POST(req: NextRequest) {
         { error: error.message },
         { status: 500 }
       );
+    }
+
+    if (profile === "satellite" && agent?.id) {
+      const routeIndex = getSatelliteRouteIndexForAgent(agent.id);
+      const defaultRoute = getDefaultSatelliteRouteByIndex(routeIndex);
+      await supabase
+        .from("agents")
+        .update({
+          route: defaultRoute,
+          route_index: 0,
+          route_t: 0,
+          lat: defaultRoute[0][0],
+          lng: defaultRoute[0][1],
+        })
+        .eq("id", agent.id);
     }
 
     return NextResponse.json({

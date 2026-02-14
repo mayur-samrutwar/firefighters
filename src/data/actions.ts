@@ -22,6 +22,8 @@ export type ActionDef = {
   score: number;
   /** Battery drain multiplier for the tick(s) while this action is active. */
   batteryDecayMultiplier: number;
+  /** Optional one-time battery cost (percent 0–100) when this action is used (e.g. view_global_state costs 5%). */
+  batteryCostPercent?: number;
   label?: string;
 };
 
@@ -68,6 +70,16 @@ const ABORT_CURRENT: ActionDef = {
   score: 0,
   batteryDecayMultiplier: 0.9,
   label: "Abort current",
+};
+
+/** Common: request a one-time global snapshot (all fires, etc.) to decide where to move when nothing nearby. Costs 5% battery. */
+const VIEW_GLOBAL_STATE: ActionDef = {
+  type: "view_global_state",
+  profiles: "common",
+  score: 0,
+  batteryDecayMultiplier: 1.0,
+  batteryCostPercent: 5,
+  label: "View global state",
 };
 
 /** Satellite: adjust scan pattern. */
@@ -175,6 +187,7 @@ export const ACTION_DEFINITIONS: ActionDef[] = [
   POST_BULLETIN,
   ACKNOWLEDGE_TASK,
   ABORT_CURRENT,
+  VIEW_GLOBAL_STATE,
   SET_SCAN_FOCUS,
   CHANGE_ROUTE,
   PRIORITIZE_SCAN_ZONE,
@@ -227,6 +240,11 @@ export function getScoreForAction(actionType: string): number {
 /** Battery decay multiplier for this action (1.0 = normal). */
 export function getBatteryDecayMultiplier(actionType: string): number {
   return getActionDef(actionType)?.batteryDecayMultiplier ?? 1.0;
+}
+
+/** One-time battery cost (percent 0–100) when this action is used, or 0 if none. */
+export function getBatteryCostPercent(actionType: string): number {
+  return getActionDef(actionType)?.batteryCostPercent ?? 0;
 }
 
 /** Bonus score when a fire is fully extinguished (awarded to the agent who applied the killing water). Kept lower so extinguishers aren’t a league apart. */

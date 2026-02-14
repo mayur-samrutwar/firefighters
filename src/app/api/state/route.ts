@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
+import { getSpeed } from "@/data/profile-specs";
+import type { AgentProfile } from "@/data/actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,7 +11,7 @@ export async function GET() {
     const [stateRes, firesRes, agentsRes, bulletinRes, eventsRes] = await Promise.all([
       supabase.from("game_state").select("tick, earth_life_pct").eq("id", 1).single(),
       supabase.from("fires").select("id, lat, lng, intensity, type, created_tick, updated_tick").order("updated_tick", { ascending: false }),
-      supabase.from("agents").select("id, type, lat, lng, battery_pct, score, name, wallet, created_at").order("score", { ascending: false }),
+      supabase.from("agents").select("id, type, lat, lng, battery_pct, score, name, wallet, created_at, target_lat, target_lng, water_level, water_capacity, last_action_type").order("score", { ascending: false }),
       supabase.from("bulletin").select("id, agent_id, message, tick, created_at").order("tick", { ascending: false }).limit(50),
       supabase.from("world_events").select("id, type, start_tick, duration_ticks, params, created_at").order("start_tick", { ascending: false }),
     ]);
@@ -27,17 +29,26 @@ export async function GET() {
       updated_tick: f.updated_tick,
     }));
 
-    const agents = (agentsRes.data ?? []).map((a) => ({
-      id: a.id,
-      type: a.type,
-      lat: Number(a.lat),
-      lng: Number(a.lng),
-      batteryPercentage: a.battery_pct,
-      score: a.score,
-      displayName: a.name,
-      wallet: a.wallet,
-      created_at: a.created_at,
-    }));
+    const agents = (agentsRes.data ?? []).map((a) => {
+      const profile = (a.type ?? "scout") as AgentProfile;
+      return {
+        id: a.id,
+        type: a.type,
+        lat: Number(a.lat),
+        lng: Number(a.lng),
+        batteryPercentage: a.battery_pct,
+        score: a.score,
+        displayName: a.name,
+        wallet: a.wallet,
+        created_at: a.created_at,
+        target_lat: a.target_lat != null ? Number(a.target_lat) : undefined,
+        target_lng: a.target_lng != null ? Number(a.target_lng) : undefined,
+        water_level: a.water_level ?? 0,
+        water_capacity: a.water_capacity ?? 0,
+        last_action_type: a.last_action_type ?? undefined,
+        speed: getSpeed(profile),
+      };
+    });
 
     const bulletin = (bulletinRes.data ?? []).map((b) => ({
       id: b.id,

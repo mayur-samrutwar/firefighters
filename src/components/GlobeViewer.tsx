@@ -7,12 +7,14 @@ import type { GlobeMethods } from 'react-globe.gl';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
 import { useGameState } from '@/contexts/GameStateContext';
 import { WATER_SOURCES } from '@/data/water-sources';
+import { SATELLITE_SCAN_RADIUS_DEG } from '@/data/profile-specs';
 
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const GLOBE_RADIUS = 100;
 const OBJECT_ALTITUDE = 0.015;
-const TICK_SECONDS = 10;
+/** Poll interval (ms) – must match GameStateContext so interpolation completes at next fetch. */
+const POLL_MS = 4000;
 
 type AgentType =
   | 'satellite'
@@ -35,6 +37,8 @@ type Agent = {
   chargeCapacity?: number;
   currentAction?: string | null;
   target?: { lat: number; lng: number } | null;
+  target_lat?: number;
+  target_lng?: number;
   speed?: number;
   route?: [number, number][];
 };
@@ -96,8 +100,8 @@ export default function GlobeViewer({
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
-  const [, setTick] = useState(0);
-  const { state } = useGameState();
+  const [tick, setTick] = useState(0);
+  const { state, previousAgents, lastFetchTime } = useGameState();
 
   const fires = useMemo<Fire[]>(
     () =>
@@ -120,20 +124,20 @@ export default function GlobeViewer({
         batteryPercentage: a.batteryPercentage,
         displayName: a.displayName,
         score: a.score,
+        target_lat: a.target_lat,
+        target_lng: a.target_lng,
+        waterLevel: a.water_level,
+        waterCapacity: a.water_capacity,
+        currentAction: a.last_action_type,
+        speed: a.speed,
+        searchRadius: a.type === 'satellite' ? SATELLITE_SCAN_RADIUS_DEG : undefined,
       })),
     [state.agents]
   );
   const waterSources = WATER_SOURCES;
-  const stateTimestamp = 0;
-  const lastTimeRef = useRef(0);
-
-  const displayPosRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   useEffect(() => {
-    const id = setInterval(() => {
-      lastTimeRef.current = Date.now();
-      setTick((t) => t + 1);
-    }, 80);
+    const id = setInterval(() => setTick((t) => t + 1), 80);
     return () => clearInterval(id);
   }, []);
 
@@ -203,22 +207,24 @@ export default function GlobeViewer({
     []
   );
 
+  /** Interpolate from previous poll position to current so movement is smooth between fetches. */
   function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
-    const baseLat = agent.lat ?? 0;
-    const baseLng = agent.lng ?? 0;
-    if (!agent.target || agent.speed == null || agent.speed <= 0) {
-      return { lat: baseLat, lng: baseLng };
+    const currLat = agent.lat ?? 0;
+    const currLng = agent.lng ?? 0;
+    const prev = previousAgents.find((p) => p.id === agent.id);
+    if (!prev || lastFetchTime <= 0) {
+      return { lat: currLat, lng: currLng };
     }
-    const target = agent.target;
-    const dist = angularDistanceDeg(baseLat, baseLng, target.lat, target.lng);
-    if (dist <= 0) return { lat: target.lat, lng: target.lng };
-    const stepFrac = Math.min(1, agent.speed / dist);
-    const elapsedSeconds = Math.max(0, (lastTimeRef.current - stateTimestamp) / 1000);
-    const tickFrac = Math.min(1, elapsedSeconds / TICK_SECONDS);
-    const frac = stepFrac * tickFrac;
+    const progress = Math.min(1, (Date.now() - lastFetchTime) / POLL_MS);
+    if (progress >= 1) return { lat: currLat, lng: currLng };
+    const prevLat = prev.lat ?? currLat;
+    const prevLng = prev.lng ?? currLng;
+    let dLng = currLng - prevLng;
+    if (dLng > 180) dLng -= 360;
+    if (dLng < -180) dLng += 360;
     return {
-      lat: clampLat(baseLat + (target.lat - baseLat) * frac),
-      lng: wrapLng(baseLng + (target.lng - baseLng) * frac),
+      lat: clampLat(prevLat + (currLat - prevLat) * progress),
+      lng: wrapLng(prevLng + dLng * progress),
     };
   }
 
@@ -279,12 +285,11 @@ export default function GlobeViewer({
     if (agents.length === 0) return [...fireObjs, ...waterObjs];
 
     const agentObjs: GlobeObject[] = agents.map((a) => {
-      const ideal = getRenderedAgentPosition(a);
-      const pos = displayPosRef.current[a.id] ?? ideal;
+      const pos = getRenderedAgentPosition(a);
       return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
     });
     return [...fireObjs, ...agentObjs, ...waterObjs];
-  }, [fires, agents, waterSources]);
+  }, [fires, agents, waterSources, tick, previousAgents, lastFetchTime]);
 
   /* ─── Agent ring data (stable refs) ───────────────────── */
 
@@ -294,8 +299,7 @@ export default function GlobeViewer({
     const map = agentRingDataRef.current;
     agents.forEach((a) => {
       if (!a.searchRadius) return;
-      const ideal = getRenderedAgentPosition(a);
-      const pos = displayPosRef.current[a.id] ?? ideal;
+      const pos = getRenderedAgentPosition(a);
       const existing = map.get(a.id);
       if (existing && existing.type === 'agent') {
         existing.lat = pos.lat;
@@ -314,7 +318,7 @@ export default function GlobeViewer({
       if (!agents.some((a) => a.id === id)) map.delete(id);
     }
     return Array.from(map.values());
-  }, [agents]);
+  }, [agents, previousAgents, lastFetchTime, tick]);
 
   const fireObjects = globeObjects.filter((o) => o.type === 'fire');
 
@@ -327,11 +331,10 @@ export default function GlobeViewer({
 
   const focusedPath: AgentPath | null = useMemo(() => {
     if (!focusedAgent) return null;
-    if (!focusedAgent.target) return null;
+    if (focusedAgent.target_lat == null || focusedAgent.target_lng == null) return null;
+    const to = { lat: focusedAgent.target_lat, lng: focusedAgent.target_lng };
 
-    const ideal = getRenderedAgentPosition(focusedAgent);
-    const from = displayPosRef.current[focusedAgent.id] ?? ideal;
-    const to = focusedAgent.target;
+    const from = getRenderedAgentPosition(focusedAgent);
 
     // Ignore degenerate paths
     const dist = angularDistanceDeg(from.lat, from.lng, to.lat, to.lng);
@@ -344,7 +347,7 @@ export default function GlobeViewer({
       endLng: to.lng,
       agentType: focusedAgent.type as AgentType,
     };
-  }, [focusedAgent]);
+  }, [focusedAgent, tick, previousAgents, lastFetchTime]);
 
   /* ─── Three.js object creators ────────────────────────── */
 
@@ -433,7 +436,7 @@ export default function GlobeViewer({
     return group;
   };
 
-  // Radial gradient texture: hot center, soft transparent edge (fire glow)
+  // Radial gradient texture: hot center, soft transparent edge (fire glow) — strong enough to read at all zoom levels
   const fireGlowTexture = useMemo(() => {
     const size = 128;
     const canvas = document.createElement('canvas');
@@ -441,11 +444,12 @@ export default function GlobeViewer({
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
     const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    g.addColorStop(0, 'rgba(255, 120, 40, 0.95)');
-    g.addColorStop(0.25, 'rgba(234, 88, 12, 0.75)');
-    g.addColorStop(0.5, 'rgba(220, 38, 38, 0.4)');
-    g.addColorStop(0.75, 'rgba(180, 30, 30, 0.15)');
-    g.addColorStop(1, 'rgba(120, 20, 20, 0)');
+    g.addColorStop(0, 'rgba(255, 140, 50, 1)');
+    g.addColorStop(0.2, 'rgba(255, 100, 40, 0.98)');
+    g.addColorStop(0.4, 'rgba(234, 70, 20, 0.85)');
+    g.addColorStop(0.6, 'rgba(220, 45, 35, 0.65)');
+    g.addColorStop(0.8, 'rgba(200, 35, 30, 0.35)');
+    g.addColorStop(1, 'rgba(140, 25, 20, 0.08)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, size, size);
     const tex = new THREE.CanvasTexture(canvas);
@@ -454,12 +458,12 @@ export default function GlobeViewer({
   }, []);
 
   const createFireObject = (intensity: number) => {
-    const radius = 0.5 + (intensity - 1) * 0.15;
+    const radius = 0.65 + (intensity - 1) * 0.2;
     const geometry = new THREE.CircleGeometry(radius, 32);
     const material = new THREE.MeshBasicMaterial({
       map: fireGlowTexture,
       transparent: true,
-      opacity: 0.9,
+      opacity: 1,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
@@ -562,7 +566,7 @@ export default function GlobeViewer({
           if (o.type === 'agent')
             return (o.agent.searchRadius ?? 0) || 0;
           const intensity = o.type === 'fire' ? o.intensity : 1;
-          return 0.4 + (intensity - 1) * 0.2;
+          return 0.55 + (intensity - 1) * 0.25;
         }}
         ringPropagationSpeed={(d: object) => {
           const o = d as GlobeObject;
