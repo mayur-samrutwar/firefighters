@@ -12,7 +12,7 @@ const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const GLOBE_RADIUS = 100;
 const OBJECT_ALTITUDE = 0.015;
-const TICK_SECONDS = 30; // real-time seconds per simulation tick
+const TICK_SECONDS = 10; // real-time seconds per simulation tick
 
 function searchRadiusToGlobeUnits(deg: number): number {
   const r = GLOBE_RADIUS * (1 + OBJECT_ALTITUDE);

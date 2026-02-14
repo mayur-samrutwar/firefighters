@@ -79,7 +79,7 @@ This is a standard Next.js app and can be deployed to Vercel, Netlify, or any Ne
 
 ### Supabase Cron Job (Recommended for Production)
 
-Instead of running the external `agent-tick.mjs` script, you can use Supabase's `pg_cron` extension to automatically call `/api/tick` every 30 seconds.
+Instead of running the external `agent-tick.mjs` script, you can use Supabase's `pg_cron` extension to automatically call `/api/tick` every 10 seconds.
 
 **Setup:**
 
@@ -129,7 +129,7 @@ node scripts/manage-supabase-cron.mjs disable
 node scripts/manage-supabase-cron.mjs set-url https://new-url.com
 ```
 
-The cron jobs run every 30 seconds automatically, so you don't need to keep the `agent-tick.mjs` script running.
+The cron jobs run every 10 seconds automatically, so you don't need to keep the `agent-tick.mjs` script running.
 
 ## Folder Overview
 

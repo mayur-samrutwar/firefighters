@@ -85,15 +85,16 @@ export { getActiveEvents, forceSpawnEvent } from './worldEvents';
 
 /* ─── Constants ─────────────────────────────────────────── */
 
+// Tick = 10s (was 30s). Constants scaled 3x so real-time feel matches 30s-tick game.
 const MAX_INTENSITY = 5;
-const INTENSITY_GROW_INTERVAL = 2;
-const FLASH_GROW_INTERVAL = 1;
-const BURNOUT_TICKS_AT_MAX = 8;
-const FIRE_MAX_LIFETIME_TICKS = 60;
+const INTENSITY_GROW_INTERVAL = 6;   // was 2
+const FLASH_GROW_INTERVAL = 3;       // was 1
+const BURNOUT_TICKS_AT_MAX = 24;     // was 8
+const FIRE_MAX_LIFETIME_TICKS = 180; // was 60
 
 const SPREAD_RADIUS_DEG = 2.5;
-const SPREAD_CHANCE_INTENSITY_3 = 0.25;
-const SPREAD_CHANCE_INTENSITY_5 = 0.5;
+const SPREAD_CHANCE_INTENSITY_3 = 0.25 / 3; // was 0.25
+const SPREAD_CHANCE_INTENSITY_5 = 0.5 / 3;   // was 0.5
 const MAX_FIRES = 50;
 
 const INTERACTION_RANGE_DEG = 2;
@@ -102,12 +103,11 @@ const CHEMICAL_WATER_MULTIPLIER = 2;
 const MAX_EVENTS = 50;
 
 const EARTH_MAX_LIFE = 100;
-const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002;
+const LIFE_LOSS_PER_INTENSITY_PER_TICK = 0.002 / 3; // was 0.002
 const LIFE_GAIN_PER_INTENSITY_EXTINGUISHED = 0.05;
 
-// Background fire seeding — approximate behavior of scripts/agent-tick.mjs.
-// Spawn rate: 1 fire per 6 ticks on average (1/6 ≈ 0.1667)
-const BACKGROUND_FIRE_SPAWN_CHANCE = 1 / 6;
+// Background fire seeding: exactly 1 new "root" fire every 6 ticks (no random burst).
+// Spread and lightning can add more; we cap spread to 1 per tick below.
 
 /* ─── Agent type configs ────────────────────────────────── */
 
@@ -121,44 +121,45 @@ const SATELLITE_ROUTES: AgentRoute[] = [
   [[60, 150], [30, 60], [0, 0], [-30, -60], [-60, -150]],
 ];
 
+// drainPerTick and speed divided by 3 so 10s ticks give same real-time drain/movement as 30s ticks.
 const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   satellite: {
-    drainPerTick: 100 / 120,
+    drainPerTick: 100 / 360,  // was 100/120
     speed: 0,
     waterCapacity: 0,
     chargeCapacity: 0,
     searchRadius: 5,
   },
   scout: {
-    drainPerTick: 100 / 60,
-    speed: 5,
+    drainPerTick: 100 / 180,  // was 100/60
+    speed: 5 / 3,
     waterCapacity: 0,
     chargeCapacity: 0,
     searchRadius: 2,
   },
   water_drone: {
-    drainPerTick: 100 / 90,
-    speed: 3,
+    drainPerTick: 100 / 270,
+    speed: 1,
     waterCapacity: 3,
     chargeCapacity: 0,
     searchRadius: 0,
   },
   heavy_tanker: {
-    drainPerTick: 100 / 80,
-    speed: 1.5,
+    drainPerTick: 100 / 240,
+    speed: 0.5,
     waterCapacity: 10,
     chargeCapacity: 0,
     searchRadius: 0,
   },
   supply_drone: {
-    drainPerTick: 100 / 100,
-    speed: 3,
+    drainPerTick: 100 / 300,
+    speed: 1,
     waterCapacity: 0,
     chargeCapacity: 30,
     searchRadius: 0,
   },
   coordinator: {
-    drainPerTick: 100 / 240,
+    drainPerTick: 100 / 720,
     speed: 0,
     waterCapacity: 0,
     chargeCapacity: 0,
@@ -825,17 +826,13 @@ function addFire(
   return fire;
 }
 
-/** Periodically seed a new fire at a random global location.
+/** Seed exactly one new fire every 6 ticks at a random global location.
  *
- * This is intentionally *not* tied to existing clusters, so that in long‑running
- * sessions (hours of ticks) we still see new fires erupting all over the map
- * rather than only around 1–2 historical storm centers.
+ * Not tied to existing clusters so long sessions get fires all over the map.
  */
 function maybeSeedBackgroundFire(ctx: TickContext): void {
   if (ctx.fires.length >= MAX_FIRES) return;
-  // Small independent chance every tick; over hours this scatters new
-  // "root" fires globally while lightning storms + spread still create clusters.
-  if (Math.random() > BACKGROUND_FIRE_SPAWN_CHANCE) return;
+  if (ctx.tick % 6 !== 0) return;
 
   const lat = randomLatGlobal();
   const lng = randomLngGlobal();
@@ -878,8 +875,11 @@ function spreadFires(ctx: TickContext): void {
 
   const wind = getWindVectorFromList(ctx.worldEvents, ctx.tick);
 
+  let spreadCount = 0;
+  const MAX_SPREAD_PER_TICK = 1;
+
   for (const fire of candidates) {
-    if (ctx.fires.length >= MAX_FIRES) break;
+    if (ctx.fires.length >= MAX_FIRES || spreadCount >= MAX_SPREAD_PER_TICK) break;
 
     const chance =
       fire.intensity >= MAX_INTENSITY
@@ -908,6 +908,7 @@ function spreadFires(ctx: TickContext): void {
       fireType: fire.fireType,
       parentId: fire.id,
     });
+    spreadCount += 1;
   }
 }
 

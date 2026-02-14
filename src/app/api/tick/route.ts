@@ -1,6 +1,7 @@
 import { processTick } from '@/app/game/store';
 import { NextResponse } from 'next/server';
 
+/** Call this every 10 seconds (cron/scheduler). Game is tuned for 10s ticks. */
 export async function POST(request: Request) {
   try {
     // Check for Authorization header with Bearer token

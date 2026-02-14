@@ -38,7 +38,7 @@ export type ActionContext = {
 
 /* ─── Execute an action ─────────────────────────────────── */
 
-const DEFAULT_TTL = 10;
+const DEFAULT_TTL = 30; // ticks; with 10s/tick = ~5min real time (was 10 ticks @ 30s)
 
 export function executeAction(
   agent: Agent,

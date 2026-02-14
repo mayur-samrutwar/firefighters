@@ -36,7 +36,7 @@ type FeedItem =
   | { kind: 'update'; id: string; tick: number; event: UpdateEvent }
   | { kind: 'fire'; id: string; tick: number; fire: Fire };
 
-const TICK_SECONDS = 30;
+const TICK_SECONDS = 10;
 
 /** Relative time from item tick vs current tick (e.g. "2m ago", "just now"). */
 function formatTicksAgo(itemTick: number, currentTick: number): string {

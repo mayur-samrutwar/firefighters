@@ -16,15 +16,16 @@ export type { WorldEvent, WorldEventType } from './types';
 const SPAWN_CHANCE = 0.07;
 const MAX_ACTIVE_EVENTS = 5;
 
+// Durations in ticks; 10s/tick. Scaled 3x from 30s-tick so real-time length unchanged.
 const EVENT_CONFIGS: Record<
   WorldEventType,
   { duration: number; weight: number }
 > = {
-  lightning_storm: { duration: 1, weight: 3 },
-  drought: { duration: 15, weight: 2 },
-  solar_flare: { duration: 3, weight: 2 },
-  strong_winds: { duration: 10, weight: 2 },
-  equipment_malfunction: { duration: 1, weight: 1 },
+  lightning_storm: { duration: 3, weight: 3 },
+  drought: { duration: 45, weight: 2 },
+  solar_flare: { duration: 9, weight: 2 },
+  strong_winds: { duration: 30, weight: 2 },
+  equipment_malfunction: { duration: 3, weight: 1 },
 };
 
 const TOTAL_WEIGHT = Object.values(EVENT_CONFIGS).reduce(

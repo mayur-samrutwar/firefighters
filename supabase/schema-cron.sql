@@ -1,7 +1,7 @@
 -- =====================================================
 -- Supabase Cron Job Setup for Game Ticks
 -- =====================================================
--- This sets up pg_cron to call /api/tick every 30 seconds
+-- This sets up pg_cron to call /api/tick every 10 seconds (game is tuned for 10s ticks)
 -- Requires: pg_cron and pg_net extensions enabled in Supabase
 -- =====================================================
 
@@ -69,21 +69,14 @@ BEGIN
 END;
 $$;
 
--- Schedule a single cron job to run every 30 seconds
--- Note: pg_cron uses standard cron format (minute hour day month weekday)
--- Since we can't schedule second-level precision, we use one job that:
---   1. Calls tick immediately
---   2. Sleeps 30 seconds
---   3. Calls tick again
--- This gives us 2 ticks per minute (every 30 seconds)
+-- Schedule tick job: 6 ticks per minute (every 10 seconds)
+-- pg_cron has minute precision only, so we run once per minute and do 6 calls with 10s sleep between
+-- If you had the previous 30s job, run: SELECT cron.unschedule('game-tick-every-30s');
 SELECT cron.schedule(
-  'game-tick-every-30s',
-  '* * * * *',  -- Every minute
-  $$SELECT call_tick_endpoint(); SELECT pg_sleep(30); SELECT call_tick_endpoint();$$
+  'game-tick-every-10s',
+  '* * * * *',
+  $$SELECT call_tick_endpoint(); SELECT pg_sleep(10); SELECT call_tick_endpoint(); SELECT pg_sleep(10); SELECT call_tick_endpoint(); SELECT pg_sleep(10); SELECT call_tick_endpoint(); SELECT pg_sleep(10); SELECT call_tick_endpoint(); SELECT pg_sleep(10); SELECT call_tick_endpoint();$$
 );
-
--- Note: If your Supabase instance supports pg_cron with second-level precision,
--- you can use: SELECT cron.schedule('game-tick', '*/30 * * * * *', $$SELECT call_tick_endpoint()$$);
 
 -- Helper function to update the API URL
 CREATE OR REPLACE FUNCTION set_tick_api_url(new_url text)

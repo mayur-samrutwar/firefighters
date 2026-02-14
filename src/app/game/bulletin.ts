@@ -14,7 +14,7 @@ export type { BulletinPost, BulletinPostType } from './types';
 /* ─── Constants ─────────────────────────────────────────── */
 
 const MAX_POSTS = 100;
-const DEFAULT_TTL = 10;
+const DEFAULT_TTL = 30; // ticks; with 10s/tick = ~5min real time (was 10 ticks @ 30s)
 
 /* ═══════════════════════════════════════════════════════════
    Pure context-based functions (for tick)
