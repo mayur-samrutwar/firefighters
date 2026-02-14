@@ -18,7 +18,7 @@ type BulletinPost = {
 type UpdateEvent = {
   id: string;
   tick: number;
-  type: 'detected' | 'watering' | 'extinguished' | 'world_event';
+  type: string;
   agentId?: string;
   fireId?: string;
   lat: number;
