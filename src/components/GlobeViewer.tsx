@@ -441,13 +441,39 @@ export default function GlobeViewer({
     return group;
   };
 
+  // Radial gradient texture: hot center, soft transparent edge (fire glow)
+  const fireGlowTexture = useMemo(() => {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255, 120, 40, 0.95)');
+    g.addColorStop(0.25, 'rgba(234, 88, 12, 0.75)');
+    g.addColorStop(0.5, 'rgba(220, 38, 38, 0.4)');
+    g.addColorStop(0.75, 'rgba(180, 30, 30, 0.15)');
+    g.addColorStop(1, 'rgba(120, 20, 20, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    return tex;
+  }, []);
+
   const createFireObject = (intensity: number) => {
-    const size = 0.35 + (intensity - 1) * 0.2625;
-    const geometry = new THREE.SphereGeometry(size, 12, 12);
-    const color =
-      intensity <= 2 ? 0xf97316 : intensity <= 4 ? 0xea580c : 0xdc2626;
-    const material = new THREE.MeshBasicMaterial({ color });
-    return new THREE.Mesh(geometry, material);
+    const radius = 0.5 + (intensity - 1) * 0.15;
+    const geometry = new THREE.CircleGeometry(radius, 32);
+    const material = new THREE.MeshBasicMaterial({
+      map: fireGlowTexture,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.rotation.x = -Math.PI / 2;
+    return mesh;
   };
 
   const waterMesh = useMemo(() => {
@@ -485,7 +511,9 @@ export default function GlobeViewer({
         objectLng={(d) => (d as GlobeObject).lng}
         objectAltitude={(d) => {
           const obj = d as GlobeObject;
-          return obj.type === 'water' ? 0.005 : 0.015;
+          if (obj.type === 'water') return 0.005;
+          if (obj.type === 'fire') return 0.0015;
+          return 0.015;
         }}
         objectThreeObject={(d) => {
           const obj = d as GlobeObject;
