@@ -23,7 +23,7 @@ export async function getAgentPayment(
   const bytes32Id = ethers.id(agentId);
   const [owner, totalPaid] = await treasury.agents(bytes32Id);
   if (!owner || owner === ethers.ZeroAddress)
-    return { ok: false, totalPaidWei: 0n };
+    return { ok: false, totalPaidWei: BigInt(0) };
   const ownerLower = (owner as string).toLowerCase();
   const expectedLower = expectedOwnerAddress.toLowerCase();
   if (ownerLower !== expectedLower)
