@@ -196,9 +196,56 @@ BEGIN
 END;
 $$;
 
--- Schedule rewards cron to run hourly
+-- Schedule rewards cron to run hourly (close hour + distribute/burn)
 SELECT cron.schedule(
   'game-rewards-hourly',
   '0 * * * *', -- at minute 0 of every hour
   $$SELECT call_rewards_endpoint()$$
+);
+
+-- =====================================================
+-- Collapse check — every minute (reset soon after earth life hits 0)
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION call_check_collapse_endpoint()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  api_url text;
+  api_secret text;
+  request_id bigint;
+  headers jsonb;
+BEGIN
+  SELECT game_tick_config.api_url, game_tick_config.api_secret
+  INTO api_url, api_secret
+  FROM game_tick_config
+  WHERE id = 1 AND enabled = true;
+
+  IF api_url IS NULL THEN
+    RETURN;
+  END IF;
+
+  headers := jsonb_build_object(
+    'Content-Type', 'application/json',
+    'User-Agent', 'Supabase-pg_cron/1.0'
+  );
+  IF api_secret IS NOT NULL AND api_secret != '' THEN
+    headers := headers || jsonb_build_object('Authorization', 'Bearer ' || api_secret);
+  END IF;
+
+  SELECT net.http_post(
+    url := api_url || '/api/cron/check-collapse',
+    headers := headers,
+    body := '{}'::jsonb
+  ) INTO request_id;
+END;
+$$;
+
+-- Run collapse check every minute (so earth at 0 is reset within ~1 min)
+SELECT cron.schedule(
+  'game-check-collapse-every-minute',
+  '* * * * *', -- every minute
+  $$SELECT call_check_collapse_endpoint()$$
 );
