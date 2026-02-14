@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const SKILL_URL = '/skill.md';
+const SKILL_URL = '/api/skill';
 
 type DeployAgentModalProps = {
   isOpen: boolean;
