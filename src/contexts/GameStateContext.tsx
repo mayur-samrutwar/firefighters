@@ -115,11 +115,16 @@ export function GameStateProvider({ children }: { children: ReactNode }) {
       const nextAgents = data.agents ?? [];
       setPreviousAgents(stateRef.current.agents);
       setLastFetchTime(Date.now());
+      // Avoid flash of empty panel when a fetch transiently returns no agents
+      const agents =
+        nextAgents.length === 0 && stateRef.current.agents.length > 0
+          ? stateRef.current.agents
+          : nextAgents;
       setState({
         tick: data.tick ?? 0,
         earth_life_pct: data.earth_life_pct ?? 100,
         fires: data.fires ?? [],
-        agents: nextAgents,
+        agents,
         bulletin: data.bulletin ?? [],
         world_events: data.world_events ?? [],
         activity: data.activity ?? [],

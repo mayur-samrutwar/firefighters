@@ -331,6 +331,8 @@ export default function GlobeViewer({
 
   const focusedPath: AgentPath | null = useMemo(() => {
     if (!focusedAgent) return null;
+    // Only show path when agent is actively moving to target (not when idle/aborted)
+    if (focusedAgent.currentAction !== 'move_to') return null;
     if (focusedAgent.target_lat == null || focusedAgent.target_lng == null) return null;
     const to = { lat: focusedAgent.target_lat, lng: focusedAgent.target_lng };
 
@@ -580,7 +582,7 @@ export default function GlobeViewer({
           const intensity = o.type === 'fire' ? o.intensity : 1;
           return Math.max(600, 1500 - intensity * 200);
         }}
-        arcsData={focusedPath ? [focusedPath] : []}
+        arcsData={[]}
         arcStartLat={(d: object) => (d as AgentPath).startLat}
         arcStartLng={(d: object) => (d as AgentPath).startLng}
         arcEndLat={(d: object) => (d as AgentPath).endLat}
