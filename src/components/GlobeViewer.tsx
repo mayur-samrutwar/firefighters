@@ -15,6 +15,10 @@ const GLOBE_RADIUS = 100;
 const OBJECT_ALTITUDE = 0.015;
 /** Poll interval (ms) – must match GameStateContext so interpolation completes at next fetch. */
 const POLL_MS = 4000;
+/** Position update interval for smooth orbit (ms). */
+const POSITION_TICK_MS = 1000 / 60;
+/** Visual speed multiplier for satellite orbit (1 = real-time; 20 = orbit in ~minutes). */
+const SATELLITE_VISUAL_SPEED = 20;
 
 type AgentType =
   | 'satellite'
@@ -48,6 +52,26 @@ type Agent = {
 function searchRadiusToGlobeUnits(deg: number): number {
   const r = GLOBE_RADIUS * (1 + OBJECT_ALTITUDE);
   return r * Math.sin((deg * Math.PI) / 180);
+}
+
+/** Total degrees from start of route up to segment idx at parameter t in [0,1]. */
+function routeDistanceDeg(route: [number, number][], idx: number, t: number): number {
+  const rlen = route.length;
+  if (rlen < 2 || idx < 0) return 0;
+  let dist = 0;
+  for (let i = 0; i < idx && i < rlen - 1; i++) {
+    const lat0 = Number(route[i][0]);
+    const lng0 = Number(route[i][1]);
+    const lat1 = Number(route[i + 1][0]);
+    const lng1 = Number(route[i + 1][1]);
+    dist += Math.max(0.001, Math.sqrt((lat1 - lat0) ** 2 + (lng1 - lng0) ** 2));
+  }
+  const lat0 = Number(route[idx][0]);
+  const lng0 = Number(route[idx][1]);
+  const lat1 = Number(route[Math.min(idx + 1, rlen - 1)][0]);
+  const lng1 = Number(route[Math.min(idx + 1, rlen - 1)][1]);
+  const segLen = Math.max(0.001, Math.sqrt((lat1 - lat0) ** 2 + (lng1 - lng0) ** 2));
+  return dist + t * segLen;
 }
 
 const COUNTRIES_GEOJSON = '/countries.geojson';
@@ -145,7 +169,7 @@ export default function GlobeViewer({
   const waterSources = WATER_SOURCES;
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 80);
+    const id = setInterval(() => setTick((t) => t + 1), POSITION_TICK_MS);
     return () => clearInterval(id);
   }, []);
 
@@ -224,27 +248,21 @@ export default function GlobeViewer({
     const elapsedTicks = elapsedMs / 60000; // 1 tick = 60s
     const speed = agent.speed ?? 0;
 
-    // Satellite: advance along route by speed (2 deg/tick). Euclidean segment length to match server.
-    // Stable origin: only update when server sends new route_index/route_t so we don't snap back every 4s poll.
+    // Satellite: advance along route by speed (2 deg/tick). Smooth motion: only re-anchor to server when server is ahead to avoid snap-back.
     if (agent.type === 'satellite' && agent.route && agent.route.length >= 2 && speed > 0) {
       const route = agent.route;
       const rlen = route.length;
       const serverIdx = Math.max(0, Math.min((agent.route_index ?? 0), rlen - 2));
       const serverT = Math.max(0, Math.min(1, agent.route_t ?? 0));
       const origin = satelliteOriginRef.current.get(agent.id);
-      const serverChanged =
-        !origin || origin.route_index !== serverIdx || Math.abs(origin.route_t - serverT) > 1e-9;
-      if (serverChanged) {
-        satelliteOriginRef.current.set(agent.id, {
-          route_index: serverIdx,
-          route_t: serverT,
-          timestamp: lastFetchTime > 0 ? lastFetchTime : Date.now(),
-        });
-      }
-      const base = satelliteOriginRef.current.get(agent.id)!;
-      const originElapsedTicks = (Date.now() - base.timestamp) / 60000;
-      let idx = base.route_index;
-      let t = base.route_t;
+      const now = Date.now();
+      const ts = lastFetchTime > 0 ? lastFetchTime : now;
+
+      // First time or need to sync: compute current predicted position from existing origin
+      let baseIdx = origin?.route_index ?? serverIdx;
+      let baseT = origin?.route_t ?? serverT;
+      const baseTs = origin?.timestamp ?? ts;
+      const originElapsedTicks = ((now - baseTs) / 60000) * SATELLITE_VISUAL_SPEED;
       let remainingDeg = speed * originElapsedTicks;
 
       function segLenDeg(i: number): number {
@@ -252,10 +270,11 @@ export default function GlobeViewer({
         const lng0 = Number(route[i][1]);
         const lat1 = Number(route[i + 1][0]);
         const lng1 = Number(route[i + 1][1]);
-        const d = Math.sqrt((lat1 - lat0) ** 2 + (lng1 - lng0) ** 2);
-        return Math.max(0.001, d);
+        return Math.max(0.001, Math.sqrt((lat1 - lat0) ** 2 + (lng1 - lng0) ** 2));
       }
 
+      let idx = baseIdx;
+      let t = baseT;
       while (remainingDeg > 1e-6 && rlen >= 2) {
         const len = segLenDeg(idx);
         const segmentLeft = (1 - t) * len;
@@ -269,6 +288,39 @@ export default function GlobeViewer({
         }
       }
       t = Math.max(0, Math.min(1, t));
+
+      // Only re-anchor to server when server is ahead of our predicted position (avoids snap-back every poll).
+      const serverDist = routeDistanceDeg(route, serverIdx, serverT);
+      const ourDist = routeDistanceDeg(route, idx, t);
+      const serverAhead = serverDist >= ourDist - 0.01;
+      if (!origin || (serverAhead && (origin.route_index !== serverIdx || Math.abs(origin.route_t - serverT) > 1e-9))) {
+        satelliteOriginRef.current.set(agent.id, {
+          route_index: serverIdx,
+          route_t: serverT,
+          timestamp: ts,
+        });
+        // Use server as base and advance by small amount so this frame we don't jump
+        baseIdx = serverIdx;
+        baseT = serverT;
+        idx = baseIdx;
+        t = baseT;
+        remainingDeg = speed * (((now - ts) / 60000) * SATELLITE_VISUAL_SPEED);
+        let again = remainingDeg;
+        while (again > 1e-6 && rlen >= 2) {
+          const len = segLenDeg(idx);
+          const segmentLeft = (1 - t) * len;
+          if (again >= segmentLeft) {
+            again -= segmentLeft;
+            idx = (idx + 1) % (rlen - 1);
+            t = 0;
+          } else {
+            t += again / len;
+            again = 0;
+          }
+        }
+        t = Math.max(0, Math.min(1, t));
+      }
+
       const lat0 = Number(route[idx][0]);
       const lng0 = Number(route[idx][1]);
       const lat1 = Number(route[idx + 1][0]);
@@ -442,7 +494,7 @@ export default function GlobeViewer({
     const color = AGENT_COLORS[agent.type] ?? 0x3b82f6;
 
     if (agent.type === 'satellite') {
-      // Billboard sprite for satellites using satellite.png
+      // Billboard sprite for satellites using satellite.png. Scan radius ring comes from ringsData only (no local disc).
       const spriteMat = new THREE.SpriteMaterial({
         map: satelliteTexture,
         transparent: true,
@@ -452,33 +504,6 @@ export default function GlobeViewer({
       // Slightly oversized so satellites are clearly visible from orbit
       sprite.scale.set(1.8, 1.8, 1.8);
       group.add(sprite);
-
-      // Visible scan radius ring (globe's ringsData uses propagation, so with speed 0 it stays invisible)
-      if (agent.searchRadius) {
-        const ringRadius = searchRadiusToGlobeUnits(agent.searchRadius);
-        const ringGeom = new THREE.RingGeometry(ringRadius * 0.7, ringRadius, 48);
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x3b82f6,
-          transparent: true,
-          opacity: 0.22,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        });
-        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-        ringMesh.rotation.x = -Math.PI / 2;
-        group.add(ringMesh);
-        // Hit disc for hover (invisible)
-        const hitGeom = new THREE.CircleGeometry(ringRadius, 32);
-        const hitMat = new THREE.MeshBasicMaterial({
-          transparent: true,
-          opacity: 0,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        });
-        const hitDisc = new THREE.Mesh(hitGeom, hitMat);
-        hitDisc.rotation.x = -Math.PI / 2;
-        group.add(hitDisc);
-      }
     } else if (agent.type === 'water_drone') {
       // Billboard sprite for water drones using watering-drone.png
       const spriteMat = new THREE.SpriteMaterial({
