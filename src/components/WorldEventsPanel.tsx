@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useGameState } from '@/contexts/GameStateContext';
 
 type WorldEvent = {
   id: string;
@@ -52,29 +52,13 @@ const EVENT_CONFIG: Record<
 };
 
 export default function WorldEventsPanel() {
-  const [events, setEvents] = useState<WorldEvent[]>([]);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const fetchEvents = () =>
-      fetch('/api/state', { cache: 'no-store' })
-        .then((res) => res.json())
-        .then((data) => {
-          setEvents(data.worldEvents || []);
-          setTick(data.tick || 0);
-        })
-        .catch(() => setEvents([]));
-    fetchEvents();
-    const interval = setInterval(fetchEvents, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  const { worldEvents: events, tick } = useGameState();
 
   if (events.length === 0) return null;
 
   return (
-    <div className="pointer-events-auto absolute left-1/2 top-6 z-20 -translate-x-1/2">
-      <div className="flex items-center gap-2">
-        {events.map((evt) => {
+    <div className="pointer-events-auto absolute left-1/2 top-6 z-20 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2">
+      {events.map((evt) => {
           const cfg = EVENT_CONFIG[evt.type] ?? {
             label: evt.type,
             color: '#94a3b8',
@@ -108,7 +92,6 @@ export default function WorldEventsPanel() {
             </div>
           );
         })}
-      </div>
     </div>
   );
 }

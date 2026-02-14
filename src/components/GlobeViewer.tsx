@@ -7,6 +7,7 @@ import type { GlobeMethods } from 'react-globe.gl';
 import type { Agent, AgentType } from '@/app/game/store';
 import { getAgentPosition } from '@/utils/agentPosition';
 import { angularDistanceDeg, clampLat, wrapLng } from '@/utils/geo';
+import { useGameState } from '@/contexts/GameStateContext';
 const Globe = dynamic(() => import('react-globe.gl'), { ssr: false });
 
 const GLOBE_RADIUS = 100;
@@ -73,41 +74,39 @@ export default function GlobeViewer({
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [countries, setCountries] = useState<object[]>([]);
-  const [fires, setFires] = useState<Fire[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [waterSources, setWaterSources] = useState<WaterSource[]>([]);
   const [globeReady, setGlobeReady] = useState(false);
   const [tick, setTick] = useState(0);
-  const [stateTimestamp, setStateTimestamp] = useState<number>(() => Date.now());
-  const serverTickRef = useRef<number | null>(null);
+  const gameState = useGameState();
+  const fires = gameState.fires;
+  const agents = gameState.agents as Agent[];
+  const waterSources = gameState.waterSources;
+  const serverTick = gameState.tick;
+  const stateTimestamp = gameState.lastFetchedAt;
+
+  // Smooth display positions: lerp toward server position every frame so we don't
+  // snap when state updates every 5s. Catch-up factor 0.12 ≈ smooth within ~1s.
+  const displayPosRef = useRef<Record<string, { lat: number; lng: number }>>({});
+  const LERP_FACTOR = 0.12;
 
   useEffect(() => {
-    const fetchState = () =>
-      fetch('/api/state', { cache: 'no-store' })
-        .then((res) => res.json())
-        .then((data) => {
-          setFires(data.fires || []);
-          setAgents(data.agents || []);
-          setWaterSources(data.waterSources || []);
-          const apiTick = typeof data.tick === 'number' ? data.tick : null;
-          if (apiTick != null && apiTick !== serverTickRef.current) {
-            serverTickRef.current = apiTick;
-            setStateTimestamp(Date.now());
-          }
-        })
-        .catch(() => {
-          setFires([]);
-          setAgents([]);
-        });
-    fetchState();
-    const interval = setInterval(fetchState, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 80);
+    const id = setInterval(() => {
+      setTick((t) => t + 1);
+      // Update display positions toward ideal (server-interpolated) positions
+      agents.forEach((a) => {
+        const ideal = getRenderedAgentPositionForLerp(a, stateTimestamp);
+        const current = displayPosRef.current[a.id] ?? ideal;
+        const lat = clampLat(current.lat + (ideal.lat - current.lat) * LERP_FACTOR);
+        const lng = wrapLng(current.lng + (ideal.lng - current.lng) * LERP_FACTOR);
+        displayPosRef.current[a.id] = { lat, lng };
+      });
+      // Drop display positions for agents no longer in list
+      const ids = new Set(agents.map((a) => a.id));
+      for (const id of Object.keys(displayPosRef.current)) {
+        if (!ids.has(id)) delete displayPosRef.current[id];
+      }
+    }, 80);
     return () => clearInterval(id);
-  }, []);
+  }, [agents, stateTimestamp]);
 
   useEffect(() => {
     fetch(COUNTRIES_GEOJSON)
@@ -186,40 +185,35 @@ export default function GlobeViewer({
     []
   );
 
-  // Compute smooth client-side positions for agents between ticks.
-  // Satellites use orbital interpolation; other agents move toward their target
-  // based on speed and real time elapsed since the last state snapshot.
-  function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
-    // Orbital satellites already use continuous interpolation
+  // Compute ideal (server-interpolated) position. Used by display lerp and by
+  // getRenderedAgentPosition. stateTs is last state fetch time (ms).
+  function getRenderedAgentPositionForLerp(
+    agent: Agent,
+    stateTs: number
+  ): { lat: number; lng: number } {
     if (agent.type === 'satellite' && agent.route) {
       return getAgentPosition(agent);
     }
-
     const baseLat = agent.lat ?? 0;
     const baseLng = agent.lng ?? 0;
-
-    // No target or no speed → stay at last server position
     if (!agent.target || agent.speed == null || agent.speed <= 0) {
       return { lat: baseLat, lng: baseLng };
     }
-
     const target = agent.target;
     const dist = angularDistanceDeg(baseLat, baseLng, target.lat, target.lng);
-    if (dist <= 0) {
-      return { lat: target.lat, lng: target.lng };
-    }
-
-    // Server moves agents at most `speed` degrees per tick toward the target.
-    // Here we smooth just THIS tick's movement so we never overshoot what
-    // the server will do.
-    const stepFrac = Math.min(1, agent.speed / dist); // fraction of leg this tick
-    const elapsedSeconds = Math.max(0, (Date.now() - stateTimestamp) / 1000);
+    if (dist <= 0) return { lat: target.lat, lng: target.lng };
+    const stepFrac = Math.min(1, agent.speed / dist);
+    const elapsedSeconds = Math.max(0, (Date.now() - stateTs) / 1000);
     const tickFrac = Math.min(1, elapsedSeconds / TICK_SECONDS);
-    const frac = stepFrac * tickFrac; // 0 → full one-tick step toward target
+    const frac = stepFrac * tickFrac;
+    return {
+      lat: clampLat(baseLat + (target.lat - baseLat) * frac),
+      lng: wrapLng(baseLng + (target.lng - baseLng) * frac),
+    };
+  }
 
-    const lat = clampLat(baseLat + (target.lat - baseLat) * frac);
-    const lng = wrapLng(baseLng + (target.lng - baseLng) * frac);
-    return { lat, lng };
+  function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
+    return getRenderedAgentPositionForLerp(agent, stateTimestamp);
   }
 
   // Satellite icon texture (billboard sprite)
@@ -278,7 +272,8 @@ export default function GlobeViewer({
     }));
 
     const agentObjs: GlobeObject[] = agents.map((a) => {
-      const pos = getRenderedAgentPosition(a);
+      const ideal = getRenderedAgentPosition(a);
+      const pos = displayPosRef.current[a.id] ?? ideal;
       return { type: 'agent' as const, lat: pos.lat, lng: pos.lng, agent: a };
     });
 
@@ -291,7 +286,7 @@ export default function GlobeViewer({
     }));
 
     return [...fireObjs, ...agentObjs, ...waterObjs];
-  }, [fires, agents, waterSources, tick, stateTimestamp]);
+  }, [fires, agents, waterSources, serverTick, stateTimestamp, tick]);
 
   /* ─── Agent ring data (stable refs) ───────────────────── */
 
@@ -299,9 +294,9 @@ export default function GlobeViewer({
   const agentRingData = useMemo(() => {
     const map = agentRingDataRef.current;
     agents.forEach((a) => {
-      // Only show rings for satellite and scout (agents with searchRadius)
       if (!a.searchRadius) return;
-      const pos = getRenderedAgentPosition(a);
+      const ideal = getRenderedAgentPosition(a);
+      const pos = displayPosRef.current[a.id] ?? ideal;
       const existing = map.get(a.id);
       if (existing && existing.type === 'agent') {
         existing.lat = pos.lat;
@@ -320,7 +315,7 @@ export default function GlobeViewer({
       if (!agents.some((a) => a.id === id)) map.delete(id);
     }
     return Array.from(map.values());
-  }, [agents, tick, stateTimestamp]);
+  }, [agents, serverTick, stateTimestamp, tick]);
 
   const fireObjects = globeObjects.filter((o) => o.type === 'fire');
 
@@ -335,7 +330,8 @@ export default function GlobeViewer({
     if (!focusedAgent) return null;
     if (!focusedAgent.target) return null;
 
-    const from = getRenderedAgentPosition(focusedAgent);
+    const ideal = getRenderedAgentPosition(focusedAgent);
+    const from = displayPosRef.current[focusedAgent.id] ?? ideal;
     const to = focusedAgent.target;
 
     // Ignore degenerate paths
@@ -347,9 +343,9 @@ export default function GlobeViewer({
       startLng: from.lng,
       endLat: to.lat,
       endLng: to.lng,
-      agentType: focusedAgent.type,
+      agentType: focusedAgent.type as AgentType,
     };
-  }, [focusedAgent, stateTimestamp, tick]);
+  }, [focusedAgent, stateTimestamp, serverTick, tick]);
 
   /* ─── Three.js object creators ────────────────────────── */
 

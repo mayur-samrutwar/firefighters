@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useGameState } from '@/contexts/GameStateContext';
 
 type Agent = {
   id: string;
@@ -25,25 +26,7 @@ export default function ActiveAgentsPanel({
 }: {
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [scores, setScores] = useState<AgentLeaderboardEntry[]>([]);
-
-  useEffect(() => {
-    const fetchAgents = () =>
-      fetch('/api/state', { cache: 'no-store' })
-        .then((res) => res.json())
-        .then((data) => {
-          setAgents(data.agents || []);
-          setScores(data.agentLeaderboard || []);
-        })
-        .catch(() => {
-          setAgents([]);
-          setScores([]);
-        });
-    fetchAgents();
-    const interval = setInterval(fetchAgents, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  const { agents, agentLeaderboard: scores } = useGameState();
 
   const box =
     'overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-200/40 backdrop-blur-sm';
@@ -55,7 +38,7 @@ export default function ActiveAgentsPanel({
       return [...agents]
         .map((a) => {
           const scoreEntry = scoreById.get(a.id);
-          const friendlyType = a.type.replace('_', ' ');
+          const friendlyType = (a.type ?? 'agent').replace('_', ' ');
           const name = a.displayName?.trim();
           const label = name ? name : friendlyType;
           return {
@@ -64,15 +47,14 @@ export default function ActiveAgentsPanel({
             score: scoreEntry?.score ?? 0,
           };
         })
-        .sort((a, b) => b.score - a.score || b.batteryPercentage - a.batteryPercentage)
+        .sort((a, b) => b.score - a.score || (b.batteryPercentage ?? 0) - (a.batteryPercentage ?? 0))
         .slice(0, 10);
     },
     [agents, scores]
   );
 
   return (
-    <div className="pointer-events-auto absolute right-8 bottom-8 z-10 w-64">
-      <div className={box}>
+    <div className={box}>
         <p className="border-b border-slate-200/80 px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           Active Agents
           {agents.length > 0 && (
@@ -111,7 +93,7 @@ export default function ActiveAgentsPanel({
                       {a.score.toLocaleString()} pts
                     </p>
                     <p className="mt-0.5 text-[9px] text-slate-400">
-                      {Math.round(a.batteryPercentage)}%
+                      {Math.round(a.batteryPercentage ?? 0)}%
                     </p>
                     <div className="mt-0.5 h-1 w-16 rounded-full bg-slate-100">
                       <div
@@ -119,7 +101,7 @@ export default function ActiveAgentsPanel({
                         style={{
                           width: `${Math.max(
                             0,
-                            Math.min(100, a.batteryPercentage)
+                            Math.min(100, a.batteryPercentage ?? 0)
                           )}%`,
                         }}
                       />
@@ -130,7 +112,6 @@ export default function ActiveAgentsPanel({
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

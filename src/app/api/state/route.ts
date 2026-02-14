@@ -73,6 +73,10 @@ export async function GET() {
   const nextCollapseCheck = getNextCollapseCheckTime();
   const nextRewardsCron = getNextRewardsCronTime();
 
+  if (fires.length === 0 && updates.length === 0 && bulletin.length === 0 && (agents?.length ?? 0) === 0) {
+    console.warn('[state] GET /api/state returning empty game (tick=%s, fires=0, updates=0, bulletin=0)', tick);
+  }
+
   return NextResponse.json({
     tick,
     fires,

@@ -73,6 +73,7 @@ export async function POST(request: Request) {
 
       // Reset all game state in Supabase
       await _resetState();
+      console.warn('[rewards] Game state wiped (Earth collapsed)');
 
       return NextResponse.json({
         ok: true,

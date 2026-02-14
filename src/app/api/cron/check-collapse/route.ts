@@ -63,6 +63,7 @@ export async function POST(request: Request) {
     }
 
     await _resetState();
+    console.warn('[check-collapse] Game state wiped (Earth collapsed)');
 
     return NextResponse.json({
       ok: true,

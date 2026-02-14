@@ -1,31 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useGameState } from '@/contexts/GameStateContext';
 
 export default function EarthLifeRing() {
-  const [life, setLife] = useState(100);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const fetchState = () =>
-      fetch('/api/state', { cache: 'no-store' })
-        .then((res) => res.json())
-        .then((data) => {
-          if (typeof data.earthLife === 'number') {
-            setLife(Math.max(0, Math.min(100, data.earthLife)));
-          }
-          if (typeof data.tick === 'number') {
-            setTick(data.tick);
-          }
-        })
-        .catch(() => {
-          // keep last value on error
-        });
-    fetchState();
-    const id = setInterval(fetchState, 2000);
-    return () => clearInterval(id);
-  }, []);
-
+  const { earthLife: life, tick } = useGameState();
   const pct = Math.max(0, Math.min(100, life));
   const angle = (pct / 100) * 360;
   const color =
@@ -36,8 +14,7 @@ export default function EarthLifeRing() {
   };
 
   return (
-    <div className="pointer-events-auto absolute left-8 top-[22rem] z-10 w-72">
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-lg shadow-slate-200/40 backdrop-blur-sm">
+    <div className="shrink-0 flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/95 px-4 py-3 shadow-lg shadow-slate-200/40 backdrop-blur-sm">
         <div
           className="relative flex h-12 w-12 items-center justify-center rounded-full"
           style={ringStyle}
@@ -58,7 +35,6 @@ export default function EarthLifeRing() {
             Tick: {tick}
           </span>
         </div>
-      </div>
     </div>
   );
 }
