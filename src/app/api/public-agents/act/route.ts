@@ -412,17 +412,25 @@ export async function POST(req: NextRequest) {
       // Score applied by generic block
     } else if (actionType === "post_bulletin") {
       const postType = typeof action.postType === "string" ? action.postType.trim() : "";
-      const message = typeof action.message === "string" ? action.message.trim() : "";
-      if (!message) {
-        return NextResponse.json(
-          { error: "post_bulletin requires message" },
-          { status: 400 }
-        );
-      }
+      let message = typeof action.message === "string" ? action.message.trim() : "";
       const lat = action.lat != null && Number.isFinite(Number(action.lat)) ? Number(action.lat) : undefined;
       const lng = action.lng != null && Number.isFinite(Number(action.lng)) ? Number(action.lng) : undefined;
       const fireId = action.fireId != null ? String(action.fireId) : undefined;
       const targetAgentId = action.targetAgentId != null ? String(action.targetAgentId) : undefined;
+
+      // Coordination post types can have empty message; use a default so the bulletin is visible in the UI.
+      if (!message) {
+        const loc = lat != null && lng != null ? ` at ${lat.toFixed(1)}°, ${lng.toFixed(1)}°` : "";
+        const defaults: Record<string, string> = {
+          need_water: `Need water${loc}`,
+          need_charge: `Need charge${loc}`,
+          heading_to: "Heading to target",
+          fire_report: "Fire reported",
+          task_assign: "Task assigned",
+          all_clear: "All clear",
+        };
+        message = defaults[postType] ?? "Message";
+      }
 
       const { data: gameState } = await supabase
         .from("game_state")

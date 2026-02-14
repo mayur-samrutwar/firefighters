@@ -10,6 +10,41 @@ const AGENT_LABELS: Record<string, string> = {
   supply_drone: 'Supply Drone',
 };
 
+/** Human-readable status from last_action_type and optional target (e.g. moving). */
+const ACTION_DISPLAY: Record<string, string> = {
+  move_to: 'moving',
+  change_route: 'following route',
+  sit_idle: 'idle',
+  abort_current: 'idle',
+  post_bulletin: 'posted',
+  refill: 'refilling',
+  water_fire: 'watering fire',
+  recharge: 'recharging',
+  view_global_state: 'scanning',
+  investigate_fire: 'investigating',
+  mark_false_alarm: 'reporting',
+  no_op: 'idle',
+};
+
+function getCurrentActionLabel(
+  lastAction: string | undefined,
+  type: string,
+  targetLat: number | undefined,
+  targetLng: number | undefined,
+  waterLevel: number | undefined,
+  waterCapacity: number | undefined
+): string {
+  if (lastAction === 'move_to' && targetLat != null && targetLng != null) {
+    const isWaterCarrier = type === 'water_drone' || type === 'heavy_tanker';
+    const empty = (waterCapacity ?? 0) > 0 && (waterLevel ?? 0) <= 0;
+    if (isWaterCarrier && empty) return 'moving to refill';
+    return 'moving';
+  }
+  if (lastAction && ACTION_DISPLAY[lastAction]) return ACTION_DISPLAY[lastAction];
+  if (lastAction) return lastAction.replace(/_/g, ' ');
+  return type === 'satellite' ? 'scanning' : 'idle';
+}
+
 export default function ActiveAgentsPanel({
   onFocusAgent,
 }: {
@@ -18,15 +53,25 @@ export default function ActiveAgentsPanel({
   const { state } = useGameState();
   const agents = state.agents
     .filter((a) => (a.batteryPercentage ?? 0) > 0)
-    .map((a) => ({
-    id: a.id,
-    type: a.type,
-    batteryPercentage: a.batteryPercentage,
-    currentAction: null as string | null,
-    displayName: a.displayName,
-    label: a.displayName || AGENT_LABELS[a.type] || a.type,
-    score: a.score,
-  }));
+    .map((a) => {
+      const currentAction = getCurrentActionLabel(
+        a.last_action_type,
+        a.type,
+        a.target_lat,
+        a.target_lng,
+        a.water_level,
+        a.water_capacity
+      );
+      return {
+        id: a.id,
+        type: a.type,
+        batteryPercentage: a.batteryPercentage,
+        currentAction,
+        displayName: a.displayName,
+        label: a.displayName || AGENT_LABELS[a.type] || a.type,
+        score: a.score,
+      };
+    });
   const box =
     'overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-200/40 backdrop-blur-sm';
   const sorted = agents;
@@ -59,11 +104,7 @@ export default function ActiveAgentsPanel({
                       {a.label}
                     </p>
                     <p className="mt-0.5 line-clamp-1 text-[10px] text-slate-400">
-                      {a.currentAction
-                        ? a.currentAction
-                        : a.type === 'satellite'
-                          ? 'scanning'
-                          : 'idle'}
+                      {a.currentAction}
                     </p>
                   </div>
                   <div className="ml-2 flex flex-col items-end">

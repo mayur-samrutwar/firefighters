@@ -11,7 +11,7 @@ export async function GET() {
     const [stateRes, firesRes, agentsRes, bulletinRes, eventsRes] = await Promise.all([
       supabase.from("game_state").select("tick, earth_life_pct").eq("id", 1).single(),
       supabase.from("fires").select("id, lat, lng, intensity, type, created_tick, updated_tick").order("updated_tick", { ascending: false }),
-      supabase.from("agents").select("id, type, lat, lng, battery_pct, score, name, wallet, created_at, target_lat, target_lng, water_level, water_capacity, last_action_type").gt("battery_pct", 0).order("score", { ascending: false }),
+      supabase.from("agents").select("id, type, lat, lng, battery_pct, score, name, wallet, created_at, target_lat, target_lng, water_level, water_capacity, last_action_type, route, route_index, route_t").gt("battery_pct", 0).order("score", { ascending: false }),
       supabase.from("bulletin").select("id, agent_id, message, tick, created_at").order("tick", { ascending: false }).limit(50),
       supabase.from("world_events").select("id, type, start_tick, duration_ticks, params, created_at").order("start_tick", { ascending: false }),
     ]);
@@ -31,6 +31,7 @@ export async function GET() {
 
     const agents = (agentsRes.data ?? []).map((a) => {
       const profile = (a.type ?? "scout") as AgentProfile;
+      const route = a.route as [number, number][] | null;
       return {
         id: a.id,
         type: a.type,
@@ -47,6 +48,9 @@ export async function GET() {
         water_capacity: a.water_capacity ?? 0,
         last_action_type: a.last_action_type ?? undefined,
         speed: getSpeed(profile),
+        route: Array.isArray(route) ? route : undefined,
+        route_index: a.route_index != null ? Number(a.route_index) : undefined,
+        route_t: a.route_t != null ? Number(a.route_t) : undefined,
       };
     });
 

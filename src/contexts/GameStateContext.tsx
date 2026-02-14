@@ -38,6 +38,9 @@ export type GameState = {
     water_capacity?: number;
     last_action_type?: string;
     speed?: number;
+    route?: [number, number][];
+    route_index?: number;
+    route_t?: number;
   }>;
   bulletin: Array<{
     id: string;

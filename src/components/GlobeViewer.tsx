@@ -41,6 +41,8 @@ type Agent = {
   target_lng?: number;
   speed?: number;
   route?: [number, number][];
+  route_index?: number;
+  route_t?: number;
 };
 
 function searchRadiusToGlobeUnits(deg: number): number {
@@ -103,6 +105,9 @@ export default function GlobeViewer({
   const [tick, setTick] = useState(0);
   const { state, previousAgents, lastFetchTime } = useGameState();
 
+  /** Prediction origin for satellites: only advance when server actually updates (tick ran). Avoids snapping back every 4s poll. */
+  const satelliteOriginRef = useRef<Map<string, { route_index: number; route_t: number; timestamp: number }>>(new Map());
+
   const fires = useMemo<Fire[]>(
     () =>
       state.fires.map((f) => ({
@@ -130,6 +135,9 @@ export default function GlobeViewer({
         waterCapacity: a.water_capacity,
         currentAction: a.last_action_type,
         speed: a.speed,
+        route: a.route,
+        route_index: a.route_index,
+        route_t: a.route_t,
         searchRadius: a.type === 'satellite' ? SATELLITE_SCAN_RADIUS_DEG : undefined,
       })),
     [state.agents]
@@ -207,23 +215,99 @@ export default function GlobeViewer({
     []
   );
 
-  /** Interpolate from previous poll position to current so movement is smooth between fetches. */
+  /** Predict position so agents move smoothly between ticks (tick = 60s). Uses target or route + speed. */
   function getRenderedAgentPosition(agent: Agent): { lat: number; lng: number } {
-    const currLat = agent.lat ?? 0;
-    const currLng = agent.lng ?? 0;
-    const prev = previousAgents.find((p) => p.id === agent.id);
-    if (!prev || lastFetchTime <= 0) {
-      return { lat: currLat, lng: currLng };
+    const baseLat = agent.lat ?? 0;
+    const baseLng = agent.lng ?? 0;
+    const now = Date.now();
+    const elapsedMs = lastFetchTime > 0 ? now - lastFetchTime : 0;
+    const elapsedTicks = elapsedMs / 60000; // 1 tick = 60s
+    const speed = agent.speed ?? 0;
+
+    // Satellite: advance along route by speed (2 deg/tick). Euclidean segment length to match server.
+    // Stable origin: only update when server sends new route_index/route_t so we don't snap back every 4s poll.
+    if (agent.type === 'satellite' && agent.route && agent.route.length >= 2 && speed > 0) {
+      const route = agent.route;
+      const rlen = route.length;
+      const serverIdx = Math.max(0, Math.min((agent.route_index ?? 0), rlen - 2));
+      const serverT = Math.max(0, Math.min(1, agent.route_t ?? 0));
+      const origin = satelliteOriginRef.current.get(agent.id);
+      const serverChanged =
+        !origin || origin.route_index !== serverIdx || Math.abs(origin.route_t - serverT) > 1e-9;
+      if (serverChanged) {
+        satelliteOriginRef.current.set(agent.id, {
+          route_index: serverIdx,
+          route_t: serverT,
+          timestamp: lastFetchTime > 0 ? lastFetchTime : Date.now(),
+        });
+      }
+      const base = satelliteOriginRef.current.get(agent.id)!;
+      const originElapsedTicks = (Date.now() - base.timestamp) / 60000;
+      let idx = base.route_index;
+      let t = base.route_t;
+      let remainingDeg = speed * originElapsedTicks;
+
+      function segLenDeg(i: number): number {
+        const lat0 = Number(route[i][0]);
+        const lng0 = Number(route[i][1]);
+        const lat1 = Number(route[i + 1][0]);
+        const lng1 = Number(route[i + 1][1]);
+        const d = Math.sqrt((lat1 - lat0) ** 2 + (lng1 - lng0) ** 2);
+        return Math.max(0.001, d);
+      }
+
+      while (remainingDeg > 1e-6 && rlen >= 2) {
+        const len = segLenDeg(idx);
+        const segmentLeft = (1 - t) * len;
+        if (remainingDeg >= segmentLeft) {
+          remainingDeg -= segmentLeft;
+          idx = (idx + 1) % (rlen - 1);
+          t = 0;
+        } else {
+          t += remainingDeg / len;
+          remainingDeg = 0;
+        }
+      }
+      t = Math.max(0, Math.min(1, t));
+      const lat0 = Number(route[idx][0]);
+      const lng0 = Number(route[idx][1]);
+      const lat1 = Number(route[idx + 1][0]);
+      const lng1 = Number(route[idx + 1][1]);
+      return {
+        lat: clampLat(lat0 + (lat1 - lat0) * t),
+        lng: wrapLng(lng0 + (lng1 - lng0) * t),
+      };
     }
-    const progress = Math.min(1, (Date.now() - lastFetchTime) / POLL_MS);
-    if (progress >= 1) return { lat: currLat, lng: currLng };
-    const prevLat = prev.lat ?? currLat;
-    const prevLng = prev.lng ?? currLng;
-    let dLng = currLng - prevLng;
+
+    // Ground agent with target: move toward target by speed * elapsedTicks (deg)
+    const targetLat = agent.target_lat ?? agent.target?.lat;
+    const targetLng = agent.target_lng ?? agent.target?.lng;
+    if (speed > 0 && targetLat != null && targetLng != null && elapsedTicks > 0) {
+      const dist = angularDistanceDeg(baseLat, baseLng, targetLat, targetLng);
+      const move = Math.min(dist, speed * elapsedTicks);
+      if (move < 0.0001) return { lat: baseLat, lng: baseLng };
+      const frac = move / (dist || 0.0001);
+      let dLng = targetLng - baseLng;
+      if (dLng > 180) dLng -= 360;
+      if (dLng < -180) dLng += 360;
+      return {
+        lat: clampLat(baseLat + (targetLat - baseLat) * frac),
+        lng: wrapLng(baseLng + dLng * frac),
+      };
+    }
+
+    // No route/target or no elapsed time: interpolate from previous poll to current (smooth between 4s fetches)
+    const prev = previousAgents.find((p) => p.id === agent.id);
+    if (!prev || lastFetchTime <= 0) return { lat: baseLat, lng: baseLng };
+    const progress = Math.min(1, elapsedMs / POLL_MS);
+    if (progress >= 1) return { lat: baseLat, lng: baseLng };
+    const prevLat = prev.lat ?? baseLat;
+    const prevLng = prev.lng ?? baseLng;
+    let dLng = baseLng - prevLng;
     if (dLng > 180) dLng -= 360;
     if (dLng < -180) dLng += 360;
     return {
-      lat: clampLat(prevLat + (currLat - prevLat) * progress),
+      lat: clampLat(prevLat + (baseLat - prevLat) * progress),
       lng: wrapLng(prevLng + dLng * progress),
     };
   }
