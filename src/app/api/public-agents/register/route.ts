@@ -83,6 +83,7 @@ export async function POST(req: NextRequest) {
     const secretHash = hashSecret(secret);
 
     const waterCapacity = getWaterCapacity(profile as AgentProfile);
+    const isWaterAgent = profile === "water_drone" || profile === "heavy_tanker";
     const spawn = randomSpawnCoords();
     const insertPayload: Record<string, unknown> = {
       name: name.trim(),
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
       battery_pct: 100,
       score: 0,
       secret_hash: secretHash,
-      water_level: 0,
+      water_level: isWaterAgent ? waterCapacity : 0,
       water_capacity: waterCapacity,
     };
 
