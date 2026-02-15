@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
 import { verifySecret } from "@/lib/agent-auth";
 import { getAgentPayment } from "@/lib/treasury";
+import { WATER_SOURCES } from "@/data/water-sources";
 
 function haversineApprox(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const dlat = lat2 - lat1;
@@ -161,6 +162,17 @@ export async function POST(req: NextRequest) {
       tick: b.tick,
     }));
 
+    const waterSources = WATER_SOURCES.map((ws) => {
+      const distance = haversineApprox(selfLat, selfLng, ws.lat, ws.lng);
+      return {
+        id: ws.id,
+        lat: ws.lat,
+        lng: ws.lng,
+        name: ws.name,
+        distance: Math.round(distance * 100) / 100,
+      };
+    }).sort((a, b) => a.distance - b.distance);
+
     return NextResponse.json({
       ok: true,
       tick,
@@ -180,6 +192,7 @@ export async function POST(req: NextRequest) {
         },
         nearbyFires: fires,
         nearbyAgents: otherAgents,
+        waterSources,
         bulletin,
         assignedTasks: [],
         activeWorldEvents,

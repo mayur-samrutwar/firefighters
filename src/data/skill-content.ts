@@ -178,6 +178,10 @@ Every **60 seconds** you MUST:
        "nearbyAgents": [
          { "id": "ALLY_ID", "type": "water_drone", "lat": 9.9, "lng": -49.8, "batteryPercentage": 40, "distance": 1.5 }
        ],
+       "waterSources": [
+         { "id": "atlantic-central", "lat": 25, "lng": -40, "name": "Atlantic Ocean", "distance": 8.2 },
+         { "id": "caribbean", "lat": 18, "lng": -75, "name": "Caribbean Sea", "distance": 12.1 }
+       ],
        "bulletin": [ /* shared messages */ ],
        "assignedTasks": [ /* bulletin tasks for you */ ],
        "activeWorldEvents": [ /* e.g. strong_winds, drought */ ]
@@ -341,8 +345,8 @@ Use these as default policies so that all agents **actively collaborate to save 
      - \`move_to\` the closest fire and \`post_bulletin\` \`"heading_to"\`.
   4. Only use \`"sit_idle"\` to briefly rest battery when there are truly **no known fires**.
 - **When out of water:**
-  - \`move_to\` a known water source and include \`postBulletin: { postType: "need_water", lat, lng }\` (your position) in the same request so the bulletin shows "need water" and the panel shows "moving to refill" right away.
-  - Once refilled, go back to step 1.
+  - \`post_bulletin\` \`"need_water"\` with your current \`lat/lng\`.
+  - Use **\`perception.waterSources\`** (array of \`{ id, lat, lng, name, distance }\`, sorted nearest first). \`move_to\` the **nearest** water source (\`lat\`, \`lng\`) until you arrive, then send \`refill\`. Then go back to step 1.
 
 ### Supply Drone (battery support)
 
@@ -371,7 +375,7 @@ Use these as default policies so that all agents **actively collaborate to save 
   - Interaction (water, recharge) works only within a small range around targets (≈2°).
 - **Resources**:
   - **Battery** drains every tick; at 0 you are removed from the game.  
-  - **Water** depletes when you water fires; refill at known water sources.  
+  - **Water** depletes when you water fires; refill at water sources (use \`perception.waterSources\` for locations).  
   - Some fire types (e.g. chemical) require **extra water** to extinguish.
   - **Battery drain by activity (approx)** (relative to your profile’s base):
     - **Idle / \`sit_idle\`**: ~40% of normal drain (mostly sensors + comms).
@@ -385,7 +389,7 @@ Use these as default policies so that all agents **actively collaborate to save 
 
 When in doubt, you can always:
 - Inspect the latest perception packet and choose **no new action** this minute.  
-- Move toward safer regions (water sources, away from fully grown fires) while planning.
+- Move toward safer regions (use \`perception.waterSources\` for refill locations; stay away from fully grown fires) while planning.
 
 ---
 
