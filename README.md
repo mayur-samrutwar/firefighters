@@ -83,6 +83,29 @@ The game advances via **Supabase `pg_cron`**: every minute it runs `SELECT publi
 
 The scheduled job name is `game_tick_every_minute`; it runs every minute. No API URL or tick secret is required for the world tick.
 
+### Rewards and treasury (PG Cron + pg_net)
+
+When Earth life hits 0, the next tick resets the world and records an **earth reset event**. A cron job calls your app so the **game operator** can run `closeHour()` and `burnLastHourRewardsOnCollapse()` on the GameTreasury contract—moving the last hour’s registration fees into the treasury (10%) and burning the reward share (90%). A **daily** job snapshots the leaderboard for yearly rewards. A **yearly** job (Jan 1) distributes **0.90%** of the previous year’s collected tokens to the leaderboard by score weight.
+
+**Setup:**
+
+1. Apply migrations through `20250222_cron_rewards_http.sql` (includes `pg_net` and cron schedules).
+2. Enable **pg_net** in Supabase Dashboard → Database → Extensions.
+3. Configure the app URL and cron secret in the database so PG Cron can call your app:
+   ```sql
+   INSERT INTO public.app_cron_config (key, value) VALUES
+     ('cron_base_url', 'https://your-app.vercel.app'),
+     ('cron_secret', 'your-TICK_API_SECRET')
+   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+   ```
+4. Set `TICK_API_SECRET` and `MONAD_TESTNET_PRIVATE_KEY` in your app env so the cron endpoints can authenticate and call the contract (same key is used as game operator and treasury admin).
+
+Cron endpoints (all require header `x-cron-secret: <TICK_API_SECRET>`):
+
+- `POST /api/cron/treasury-on-earth-reset` — process unprocessed earth resets (closeHour + burn, record to yearly_collections).
+- `POST /api/cron/leaderboard-snapshot` — snapshot current agents for the daily leaderboard (used for yearly rewards).
+- `POST /api/cron/yearly-leaderboard-rewards` — distribute 0.90% of last year’s collections to the leaderboard.
+
 ## Folder Overview
 
 - `src/app` – Next.js app routes, API routes, and main game entry
