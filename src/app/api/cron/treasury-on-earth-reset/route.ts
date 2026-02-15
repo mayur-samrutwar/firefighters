@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase-server";
-import { closeHourAndBurnOnCollapse } from "@/lib/game-treasury-operator";
+import { closeHourAndDistribute } from "@/lib/game-treasury-operator";
 
 function cronAuth(req: NextRequest): boolean {
   const secret = process.env.TICK_API_SECRET;
@@ -11,8 +11,8 @@ function cronAuth(req: NextRequest): boolean {
 
 /**
  * Cron: process unprocessed earth resets.
- * For each: call GameTreasury.closeHour() then burnLastHourRewardsOnCollapse(),
- * record lastBucket into yearly_collections for current year, mark event processed.
+ * For each: close hour and distribute 90% to current leaderboard by score (hourly rewards).
+ * If no leaders with score, burns the reward share. Contract is unchanged; we only call distribute instead of burn.
  */
 export async function POST(req: NextRequest) {
   if (!cronAuth(req)) {
@@ -46,21 +46,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, processed: 0 });
   }
 
-  const year = new Date().getFullYear();
   let processed = 0;
 
   for (const ev of events) {
     try {
-      const { lastBucketWei } = await closeHourAndBurnOnCollapse(
+      // Hourly leaderboard: current agents with score, ordered by score desc
+      const { data: leaders } = await supabase
+        .from("agents")
+        .select("id, score")
+        .gt("battery_pct", 0)
+        .order("score", { ascending: false });
+      const hourlyLeaders = (leaders ?? []).map((r) => ({
+        agent_id: r.id,
+        score: Number(r.score ?? 0),
+      }));
+
+      const { lastBucketWei, distributed } = await closeHourAndDistribute(
         rpcUrl,
         treasuryAddress,
-        privateKey
+        privateKey,
+        hourlyLeaders
       );
-
-      await supabase.from("yearly_collections").insert({
-        year,
-        amount_wei: String(lastBucketWei),
-      });
 
       const { error: updateError } = await supabase
         .from("earth_reset_events")
