@@ -7,7 +7,7 @@ import type { AgentProfile } from "./actions";
 
 /** Degrees per tick when moving toward target (move_to). */
 const SPEED_DEG_PER_TICK: Record<AgentProfile, number> = {
-  satellite: 12, // used along route (orbital)
+  satellite: 4, // used along route (orbital) — slow orbit for scan coverage
   scout: 32,
   water_drone: 20,
   heavy_tanker: 10,
