@@ -132,6 +132,9 @@ export default function GlobeViewer({
   /** Prediction origin for satellites: only advance when server actually updates (tick ran). Avoids snapping back every 4s poll. */
   const satelliteOriginRef = useRef<Map<string, { route_index: number; route_t: number; timestamp: number }>>(new Map());
 
+  /** Prediction origin for ground agents: tracks when server position last changed so interpolation doesn't reset every 4s poll. */
+  const groundOriginRef = useRef<Map<string, { lat: number; lng: number; timestamp: number }>>(new Map());
+
   const fires = useMemo<Fire[]>(
     () =>
       state.fires.map((f) => ({
@@ -331,12 +334,31 @@ export default function GlobeViewer({
       };
     }
 
-    // Ground agent with target: move toward target by speed * elapsedTicks (deg)
+    // Ground agent with target: move toward target by speed * elapsedTicks (deg).
+    // Use a stable origin ref so interpolation doesn't snap back every 4s poll.
+    // Only re-anchor when the server actually moves the agent (once per tick ≈60s).
     const targetLat = agent.target_lat ?? agent.target?.lat;
     const targetLng = agent.target_lng ?? agent.target?.lng;
-    if (speed > 0 && targetLat != null && targetLng != null && elapsedTicks > 0) {
+    if (speed > 0 && targetLat != null && targetLng != null) {
+      const origin = groundOriginRef.current.get(agent.id);
+      const posChanged = !origin ||
+        Math.abs(origin.lat - baseLat) > 0.0001 ||
+        Math.abs(origin.lng - baseLng) > 0.0001;
+
+      if (posChanged) {
+        groundOriginRef.current.set(agent.id, {
+          lat: baseLat,
+          lng: baseLng,
+          timestamp: lastFetchTime > 0 ? lastFetchTime : now,
+        });
+      }
+
+      const ref = groundOriginRef.current.get(agent.id)!;
+      const originElapsed = now - ref.timestamp;
+      const originTicks = originElapsed / 60000;
+
       const dist = angularDistanceDeg(baseLat, baseLng, targetLat, targetLng);
-      const move = Math.min(dist, speed * elapsedTicks);
+      const move = Math.min(dist, speed * originTicks);
       if (move < 0.0001) return { lat: baseLat, lng: baseLng };
       const frac = move / (dist || 0.0001);
       let dLng = targetLng - baseLng;
@@ -418,7 +440,21 @@ export default function GlobeViewer({
       name: ws.name,
     }));
 
-    if (agents.length === 0) return [...fireObjs, ...waterObjs];
+    if (agents.length === 0) {
+      // Cleanup origin refs when no agents remain
+      groundOriginRef.current.clear();
+      satelliteOriginRef.current.clear();
+      return [...fireObjs, ...waterObjs];
+    }
+
+    // Cleanup stale origin refs for removed agents
+    const agentIds = new Set(agents.map((a) => a.id));
+    for (const id of groundOriginRef.current.keys()) {
+      if (!agentIds.has(id)) groundOriginRef.current.delete(id);
+    }
+    for (const id of satelliteOriginRef.current.keys()) {
+      if (!agentIds.has(id)) satelliteOriginRef.current.delete(id);
+    }
 
     const agentObjs: GlobeObject[] = agents.map((a) => {
       const pos = getRenderedAgentPosition(a);

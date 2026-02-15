@@ -34,10 +34,13 @@ function getCurrentActionLabel(
   waterLevel: number | undefined,
   waterCapacity: number | undefined
 ): string {
-  // Show "moving" whenever agent has a destination (target set by move_to); don't rely only on last_action_type
-  if (targetLat != null && targetLng != null) {
-    const isWaterCarrier = type === 'water_drone' || type === 'heavy_tanker';
-    const empty = (waterCapacity ?? 0) > 0 && (waterLevel ?? 0) <= 0;
+  const isWaterCarrier = type === 'water_drone' || type === 'heavy_tanker';
+  const empty = (waterCapacity ?? 0) > 0 && (waterLevel ?? 0) <= 0;
+  const hasTarget = targetLat != null && targetLng != null;
+  const recentlyMovedTo = lastAction === 'move_to';
+
+  // Show "moving" when agent has a destination or just sent move_to (panel can lag one poll)
+  if (hasTarget || (recentlyMovedTo && (type === 'scout' || type === 'water_drone' || type === 'heavy_tanker' || type === 'supply_drone'))) {
     if (isWaterCarrier && empty) return 'moving to refill';
     return 'moving';
   }

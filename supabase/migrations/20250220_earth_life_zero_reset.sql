@@ -122,13 +122,14 @@ BEGIN
     WHERE id IN (SELECT id FROM public.agents WHERE battery_pct > 0 ORDER BY random() LIMIT drain_count);
   END IF;
 
-  -- Decay: 0.006 per tick per intensity point (was 0.002) so ~1% drop per tick with many fires
+  -- Decay: 0.006 per tick per intensity point (was 0.002) so ~1% drop per tick with many fires.
+  -- Use floor() so any decay is visible: with round(), 100 - 0.006 stayed 100 and looked like "not going down" after reset.
   SELECT coalesce(sum(intensity), 0) INTO total_intensity FROM public.fires;
   decay := 0.006 * total_intensity;
   new_life := greatest(0, coalesce(cur_life, 100)::numeric - decay);
 
   UPDATE public.game_state
-  SET tick = new_tick, earth_life_pct = greatest(0, least(100, round(coalesce(new_life, 0))::int)), updated_at = now()
+  SET tick = new_tick, earth_life_pct = greatest(0, least(100, floor(coalesce(new_life, 0))::int)), updated_at = now()
   WHERE id = 1;
 END;
 $$;

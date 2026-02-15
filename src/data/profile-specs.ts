@@ -7,11 +7,11 @@ import type { AgentProfile } from "./actions";
 
 /** Degrees per tick when moving toward target (move_to). */
 const SPEED_DEG_PER_TICK: Record<AgentProfile, number> = {
-  satellite: 2, // used along route (orbital)
-  scout: 5,
-  water_drone: 3,
-  heavy_tanker: 1.5,
-  supply_drone: 3,
+  satellite: 12, // used along route (orbital)
+  scout: 32,
+  water_drone: 20,
+  heavy_tanker: 10,
+  supply_drone: 20,
 };
 
 /** Water capacity (units). 0 = not a water carrier. */
