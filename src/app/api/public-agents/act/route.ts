@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
       // Auto-post refill activity
       await autoBulletin(agentId, currentTick, "refill", `Refilling water at source (${agentLat.toFixed(1)}°, ${agentLng.toFixed(1)}°)`, agentLat, agentLng);
     } else if (actionType === "water_fire") {
-      const NEAR_FIRE_DEG = 2;
+      const NEAR_FIRE_DEG = 5;
       const EARTH_LIFE_PER_WATER = 0.5;
       const EARTH_LIFE_EXTINGUISH = 3;
 
@@ -274,7 +274,7 @@ export async function POST(req: NextRequest) {
       const target = nearFires[0];
       if (!target) {
         return NextResponse.json(
-          { error: "water_fire requires being near a fire (within ~2°)" },
+          { error: "water_fire requires being near a fire (within ~5°)" },
           { status: 400 }
         );
       }
@@ -336,7 +336,7 @@ export async function POST(req: NextRequest) {
         await autoBulletin(agentId, currentTick, "water_fire", `Watering fire at ${fireLat.toFixed(1)}°, ${fireLng.toFixed(1)}° (intensity ${newIntensity})`, fireLat, fireLng);
       }
     } else if (actionType === "recharge_agent" || actionType === "emergency_recharge") {
-      const RECHARGE_NEAR_DEG = 2;
+      const RECHARGE_NEAR_DEG = 5;
       const BATTERY_TO_TARGET = 15;
       const BATTERY_FROM_SUPPLY = 20;
 
@@ -412,7 +412,7 @@ export async function POST(req: NextRequest) {
       const rLng = Number(agent.lng ?? 0);
       await autoBulletin(agentId, currentTick, "recharge", `Recharging ally at ${rLat.toFixed(1)}°, ${rLng.toFixed(1)}° (+${BATTERY_TO_TARGET}% battery)`, rLat, rLng);
     } else if (actionType === "investigate_fire") {
-      const INVESTIGATE_NEAR_DEG = 2;
+      const INVESTIGATE_NEAR_DEG = 5;
       const scoutLat = Number(agent.lat ?? 0);
       const scoutLng = Number(agent.lng ?? 0);
 
@@ -444,7 +444,7 @@ export async function POST(req: NextRequest) {
 
       if (!valid) {
         return NextResponse.json(
-          { error: "investigate_fire requires being near a fire (within ~2°); provide fireId or lat/lng to verify" },
+          { error: "investigate_fire requires being near a fire (within ~5°); provide fireId or lat/lng to verify" },
           { status: 400 }
         );
       }

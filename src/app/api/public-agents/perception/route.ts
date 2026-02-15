@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase-server";
 import { verifySecret } from "@/lib/agent-auth";
 import { getAgentPayment } from "@/lib/treasury";
 import { WATER_SOURCES } from "@/data/water-sources";
+import { SCORE_FIRST_FIRE_REPORT } from "@/data/actions";
 
 function haversineApprox(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const dlat = lat2 - lat1;
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const { data: agent, error: agentError } = await supabase
       .from("agents")
-      .select("id, type, lat, lng, battery_pct, name, wallet, secret_hash, paid_for_life_wei, water_level, water_capacity")
+      .select("id, type, lat, lng, battery_pct, name, wallet, secret_hash, paid_for_life_wei, water_level, water_capacity, score")
       .eq("id", agentId)
       .single();
 
@@ -162,6 +163,67 @@ export async function POST(req: NextRequest) {
       tick: b.tick,
     }));
 
+    // Durable list of reported fires (from bulletin fire_report posts) so scouts/water can target them even if reported minutes ago
+    const reportedFireIds = new Set<string>();
+    const reportedFires: { fireId: string; lat: number; lng: number; tick: number }[] = [];
+    for (const b of bulletinRes.data ?? []) {
+      try {
+        const parsed = JSON.parse(String(b.message ?? "{}")) as { postType?: string; fireId?: string; lat?: number; lng?: number };
+        if (parsed.postType !== "fire_report") continue;
+        const fid = parsed.fireId != null ? String(parsed.fireId) : null;
+        const lat = parsed.lat != null && Number.isFinite(Number(parsed.lat)) ? Number(parsed.lat) : null;
+        const lng = parsed.lng != null && Number.isFinite(Number(parsed.lng)) ? Number(parsed.lng) : null;
+        if (fid && !reportedFireIds.has(fid)) {
+          reportedFireIds.add(fid);
+          reportedFires.push({
+            fireId: fid,
+            lat: lat ?? 0,
+            lng: lng ?? 0,
+            tick: Number(b.tick ?? 0),
+          });
+        } else if (lat != null && lng != null) {
+          const key = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+          if (!reportedFireIds.has(key)) {
+            reportedFireIds.add(key);
+            reportedFires.push({ fireId: key, lat, lng, tick: Number(b.tick ?? 0) });
+          }
+        }
+      } catch {
+        /* skip unparseable */
+      }
+    }
+
+    // Satellite: auto-report any fire in perception that isn't yet reported; award first-report bonus
+    if (agent.type === "satellite" && !scanBlinded && rawFires.length > 0) {
+      let scoreDelta = 0;
+      for (const f of rawFires) {
+        const alreadyReportedById = reportedFireIds.has(String(f.id));
+        const alreadyReportedByLoc = reportedFires.some(
+          (r) => Math.abs(r.lat - f.lat) < 0.02 && Math.abs(r.lng - f.lng) < 0.02
+        );
+        if (alreadyReportedById || alreadyReportedByLoc) continue;
+        const payload = {
+          postType: "fire_report",
+          message: `Satellite detected fire (intensity ${f.intensity ?? 0})`,
+          lat: f.lat,
+          lng: f.lng,
+          fireId: String(f.id),
+        };
+        await supabase.from("bulletin").insert({
+          agent_id: agentId,
+          message: JSON.stringify(payload),
+          tick,
+        });
+        reportedFireIds.add(String(f.id));
+        reportedFires.push({ fireId: String(f.id), lat: f.lat, lng: f.lng, tick });
+        scoreDelta += SCORE_FIRST_FIRE_REPORT;
+      }
+      if (scoreDelta > 0) {
+        const newScore = (Number(agent.score ?? 0) + scoreDelta) as number;
+        await supabase.from("agents").update({ score: newScore }).eq("id", agentId);
+      }
+    }
+
     const waterSources = WATER_SOURCES.map((ws) => {
       const distance = haversineApprox(selfLat, selfLng, ws.lat, ws.lng);
       return {
@@ -191,6 +253,7 @@ export async function POST(req: NextRequest) {
           waterCapacity: agent.water_capacity ?? 0,
         },
         nearbyFires: fires,
+        reportedFires,
         nearbyAgents: otherAgents,
         waterSources,
         bulletin,

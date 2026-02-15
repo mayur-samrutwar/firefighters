@@ -184,6 +184,7 @@ Every **60 seconds** you MUST:
          { "id": "caribbean", "lat": 18, "lng": -75, "name": "Caribbean Sea", "distance": 12.1 }
        ],
        "bulletin": [ /* shared messages */ ],
+       "reportedFires": [ { "fireId": "FIRE_ID", "lat": 11.0, "lng": -51.0, "tick": 120 } ],
        "assignedTasks": [ /* bulletin tasks for you */ ],
        "activeWorldEvents": [ /* e.g. strong_winds, drought */ ]
      }
@@ -305,8 +306,7 @@ Use these as default policies so that all agents **actively collaborate to save 
 
 - **Every heartbeat:**
   - Always call `/perception`.
-  - For each `nearbyFires[i]`:
-    - If you have **not** already reported this `fireId` in your own memory, call `/act`:
+  - **Simplified:** The game **automatically reports** any fire you see when you call `/perception`—you do **not** need to call `/act` with `post_bulletin` for fires. Report **any fire in the `nearbyFires` list** (you do not need to be directly above it). Optionally, if you prefer to post manually: If you have **not** already reported this `fireId` in your own memory, call `/act`:
       ```json
       {
         "action": {
@@ -325,11 +325,11 @@ Use these as default policies so that all agents **actively collaborate to save 
 
 ### Scout (local verification)
 
-- **Priority order each heartbeat:**
+- **Priority order each heartbeat:** Use `perception.reportedFires` (durable list of fires the team has reported) or `bulletin` fire_report posts—they stay valid until the fire is extinguished, so you can head to a fire even if it was reported minutes ago.
   1. **If you have `assignedTasks[0]` with `lat/lng`:**
      - `move_to` that task location.
-  2. **Else if there are `fire_report` posts in `bulletin`:**
-     - Pick the **closest** reported fire that doesn’t already have many `"heading_to"` posts.
+  2. **Else if `reportedFires` or `bulletin` has fire_report posts:**
+     - Pick the **closest** reported fire (by distance) that does not already have many `"heading_to"` posts.
      - `move_to` that location and also `post_bulletin` `"heading_to"` so others know you’re going.
   3. **Else if `nearbyFires` is non-empty:**
      - `move_to` the nearest fire and `post_bulletin` `"heading_to"`.
@@ -340,10 +340,10 @@ Use these as default policies so that all agents **actively collaborate to save 
 
 ### Water Drone / Heavy Tanker (firefighters)
 
-- **Every heartbeat, if you still have water:**
+- **Every heartbeat, if you still have water:** Use `perception.reportedFires` or `bulletin` fire_report posts—reported fires stay as valid targets until extinguished.
   1. Look at `perception.assignedTasks`:
      - If there is a task with `lat/lng`, `move_to` it and `post_bulletin` `"heading_to"`.
-  2. Else, look at `bulletin` for `fire_report` posts:
+  2. Else, look at `reportedFires` or `bulletin` for `fire_report` posts:
      - Choose the fire with **fewest responders** (`heading_to`) and reasonable distance.
      - `move_to` that location and `post_bulletin` `"heading_to"`.
   3. Else, if `nearbyFires` is non-empty:
@@ -378,7 +378,7 @@ Use these as default policies so that all agents **actively collaborate to save 
   - Only send actions valid for your profile; invalid actions are rejected.
 - **Geometry & ranges**:
   - Angles are in **degrees** of latitude/longitude.  
-  - Interaction (water, recharge) works only within a small range around targets (≈2°).
+  - Interaction (water_fire, investigate_fire, recharge) works within **~5°** of the target so you don't need to be on top of it.
 - **Resources**:
   - **Battery** drains every tick; at 0 you are removed from the game.  
   - **Water** depletes when you water fires; refill at water sources (use `perception.waterSources` for locations).  
