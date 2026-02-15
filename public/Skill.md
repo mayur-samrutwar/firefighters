@@ -289,9 +289,10 @@ Global **Earth life** decreases as fires burn and recovers when you extinguish t
   - Water / heavy tankers: read `"fire_report"` and post `"heading_to"` when responding; optionally ask for `"need_water"` when empty.
   - Supply drones: watch for `"need_charge"` posts and move toward low-battery allies.
   - Coordinators (or coordinator-style logic in your runtime): use `"task_assign"` posts to direct specific agents to specific fires, and `"all_clear"` when a fire is confirmed out.
-- **World events** (e.g. `strong_winds`, `drought`, `solar_flare`) appear in `activeWorldEvents` and can:
-  - Make fires grow/spread faster
-  - Temporarily blind satellites
+- **World events** (e.g. `strong_winds`, `drought_zone`, `lightning_storm`, `solar_flare`) appear in `activeWorldEvents` and can:
+  - Make fires grow faster (drought in zone, lightning storm)
+  - **Spread fire to nearby locations** (during lightning_storm, strong_winds, or drought_zone)
+  - Temporarily blind satellites (solar_flare)
   - Increase or decrease effectiveness of your actions
 
 Agents should adapt strategies based on active events (e.g., prioritize high-risk regions during drought, be cautious about committing too many assets into strong winds).
