@@ -8,6 +8,18 @@ import { isAtWaterSource } from "@/data/water-sources";
 import { getWaterCapacity } from "@/data/profile-specs";
 import { angularDistanceDeg } from "@/utils/geo";
 
+/** Auto-post a bulletin entry for significant agent actions (fire-and-forget, non-blocking). */
+async function autoBulletin(agentId: string, tick: number, postType: string, message: string, lat?: number, lng?: number) {
+  const payload: Record<string, unknown> = { postType, message };
+  if (lat != null) payload.lat = lat;
+  if (lng != null) payload.lng = lng;
+  await supabase.from("bulletin").insert({
+    agent_id: agentId,
+    message: JSON.stringify(payload),
+    tick,
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -121,6 +133,10 @@ export async function POST(req: NextRequest) {
       updates.battery_pct = Math.max(0, currentBattery - batteryCost);
     }
 
+    // Fetch current tick once for all bulletin auto-posts
+    const { data: _gsTickRow } = await supabase.from("game_state").select("tick").eq("id", 1).single();
+    const currentTick = Number(_gsTickRow?.tick ?? 0);
+
     if (actionType === "move_to") {
       const lat = action.lat != null ? Number(action.lat) : undefined;
       const lng = action.lng != null ? Number(action.lng) : undefined;
@@ -136,7 +152,8 @@ export async function POST(req: NextRequest) {
 
       // Optional: post to bulletin in the same request (e.g. need_water while heading to refill)
       const pb = action.postBulletin as { postType?: string; message?: string; lat?: number; lng?: number } | undefined;
-      if (pb && typeof pb === "object" && (typeof pb.postType === "string" || typeof pb.message === "string")) {
+      const hasExplicitPost = pb && typeof pb === "object" && (typeof pb.postType === "string" || typeof pb.message === "string");
+      if (hasExplicitPost) {
         const postType = typeof pb.postType === "string" ? pb.postType.trim() : "";
         let message = typeof pb.message === "string" ? pb.message.trim() : "";
         const blat = pb.lat != null && Number.isFinite(Number(pb.lat)) ? Number(pb.lat) : Number(agent.lat ?? 0);
@@ -150,14 +167,17 @@ export async function POST(req: NextRequest) {
           };
           message = defaults[postType] ?? "Message";
         }
-        const { data: gs } = await supabase.from("game_state").select("tick").eq("id", 1).single();
-        const btick = Number(gs?.tick ?? 0);
         const payload: Record<string, unknown> = { postType: postType || "message", message, lat: blat, lng: blng };
         await supabase.from("bulletin").insert({
           agent_id: agentId,
           message: JSON.stringify(payload),
-          tick: btick,
+          tick: currentTick,
         });
+      } else {
+        // Auto-post: always show movement on the bulletin board
+        const tLat = (updates.target_lat as number).toFixed(1);
+        const tLng = (updates.target_lng as number).toFixed(1);
+        await autoBulletin(agentId, currentTick, "heading_to", `Heading to ${tLat}°, ${tLng}°`, Number(agent.lat ?? 0), Number(agent.lng ?? 0));
       }
     } else if (actionType === "change_route" && profile === "satellite") {
       const route = action.route;
@@ -218,6 +238,9 @@ export async function POST(req: NextRequest) {
         );
       }
       updates.water_level = capacity;
+
+      // Auto-post refill activity
+      await autoBulletin(agentId, currentTick, "refill", `Refilling water at source (${agentLat.toFixed(1)}°, ${agentLng.toFixed(1)}°)`, agentLat, agentLng);
     } else if (actionType === "water_fire") {
       const NEAR_FIRE_DEG = 2;
       const EARTH_LIFE_PER_WATER = 0.5;
@@ -303,6 +326,15 @@ export async function POST(req: NextRequest) {
           { status: 500 }
         );
       }
+
+      // Auto-post water_fire activity
+      const fireLat = Number(target.lat);
+      const fireLng = Number(target.lng);
+      if (extinguished) {
+        await autoBulletin(agentId, currentTick, "extinguish", `Extinguished fire at ${fireLat.toFixed(1)}°, ${fireLng.toFixed(1)}°!`, fireLat, fireLng);
+      } else {
+        await autoBulletin(agentId, currentTick, "water_fire", `Watering fire at ${fireLat.toFixed(1)}°, ${fireLng.toFixed(1)}° (intensity ${newIntensity})`, fireLat, fireLng);
+      }
     } else if (actionType === "recharge_agent" || actionType === "emergency_recharge") {
       const RECHARGE_NEAR_DEG = 2;
       const BATTERY_TO_TARGET = 15;
@@ -374,6 +406,11 @@ export async function POST(req: NextRequest) {
           { status: 500 }
         );
       }
+
+      // Auto-post recharge activity
+      const rLat = Number(agent.lat ?? 0);
+      const rLng = Number(agent.lng ?? 0);
+      await autoBulletin(agentId, currentTick, "recharge", `Recharging ally at ${rLat.toFixed(1)}°, ${rLng.toFixed(1)}° (+${BATTERY_TO_TARGET}% battery)`, rLat, rLng);
     } else if (actionType === "investigate_fire") {
       const INVESTIGATE_NEAR_DEG = 2;
       const scoutLat = Number(agent.lat ?? 0);
@@ -411,30 +448,21 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+
+      // Auto-post investigate activity
+      const invLat = lat ?? scoutLat;
+      const invLng = lng ?? scoutLng;
+      await autoBulletin(agentId, currentTick, "investigate", `Investigating fire at ${invLat.toFixed(1)}°, ${invLng.toFixed(1)}°`, invLat, invLng);
       // Score applied by generic block
     } else if (actionType === "mark_false_alarm") {
       const lat = action.lat != null && Number.isFinite(Number(action.lat)) ? Number(action.lat) : undefined;
       const lng = action.lng != null && Number.isFinite(Number(action.lng)) ? Number(action.lng) : undefined;
 
-      const { data: gameState } = await supabase
-        .from("game_state")
-        .select("tick")
-        .eq("id", 1)
-        .single();
-      const tick = Number(gameState?.tick ?? 0);
       const message =
         lat != null && lng != null
           ? `False alarm at ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`
           : "False alarm reported";
-      const bulletinPayload: Record<string, unknown> = { postType: "false_alarm", message };
-      if (lat != null) bulletinPayload.lat = lat;
-      if (lng != null) bulletinPayload.lng = lng;
-
-      await supabase.from("bulletin").insert({
-        agent_id: agentId,
-        message: JSON.stringify(bulletinPayload),
-        tick,
-      });
+      await autoBulletin(agentId, currentTick, "false_alarm", message, lat, lng);
       // Score applied by generic block
     } else if (actionType === "post_bulletin") {
       const postType = typeof action.postType === "string" ? action.postType.trim() : "";
@@ -458,13 +486,6 @@ export async function POST(req: NextRequest) {
         message = defaults[postType] ?? "Message";
       }
 
-      const { data: gameState } = await supabase
-        .from("game_state")
-        .select("tick")
-        .eq("id", 1)
-        .single();
-
-      const tick = Number(gameState?.tick ?? 0);
       const bulletinPayload: Record<string, unknown> = { postType: postType || "message", message };
       if (lat != null) bulletinPayload.lat = lat;
       if (lng != null) bulletinPayload.lng = lng;
@@ -510,7 +531,7 @@ export async function POST(req: NextRequest) {
       const { error: bulletinError } = await supabase.from("bulletin").insert({
         agent_id: agentId,
         message: JSON.stringify(bulletinPayload),
-        tick,
+        tick: currentTick,
       });
 
       if (bulletinError) {

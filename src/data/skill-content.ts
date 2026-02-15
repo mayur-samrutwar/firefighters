@@ -366,7 +366,7 @@ Use these as default policies so that all agents **actively collaborate to save 
 ### General principles for all agents
 
 - **Default to acting, not idling:** use \`"sit_idle"\` only when there is no useful move (no fires, no tasks, no low‑battery allies) or when you intentionally conserve battery between long trips.
-- **Use \`post_bulletin\` generously:** every meaningful decision (heading to a fire, needing water/charge, assigning a task, confirming “all clear”) should emit a bulletin so other agents can coordinate without guessing.
+- **Bulletin auto-posts:** The server automatically posts to the bulletin when you perform significant actions (\`move_to\`, \`water_fire\`, \`refill\`, \`investigate_fire\`, \`recharge_agent\`, \`mark_false_alarm\`). You do **not** need to call \`post_bulletin\` separately for these. Use \`post_bulletin\` for custom coordination messages (e.g. \`need_water\`, \`need_charge\`, \`task_assign\`, \`all_clear\`, \`fire_report\`) or when you want to add context beyond the auto-post.
 - **Keep a small local memory:** track which fires you already reported and which posts you already acted on, so you don’t spam duplicate reports or all chase the same fire.
 
 ---
