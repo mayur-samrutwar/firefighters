@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     let payment: { ok: boolean; totalPaidWei: bigint } | null = null;
 
     if (needContractCheck) {
-      const rpcUrl = process.env.MONAD_TESTNET_RPC_URL ?? "";
+      const rpcUrl = process.env.MONAD_MAINNET_RPC_URL ?? "";
       const treasuryAddress = process.env.GAME_TREASURY_ADDRESS ?? "";
       if (!rpcUrl || !treasuryAddress) {
         return NextResponse.json(

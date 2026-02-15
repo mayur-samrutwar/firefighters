@@ -2,8 +2,8 @@ require("dotenv").config({ path: ".env.local" });
 require("@nomicfoundation/hardhat-toolbox");
 
 const {
-  MONAD_TESTNET_RPC_URL,
-  MONAD_TESTNET_PRIVATE_KEY,
+  MONAD_MAINNET_RPC_URL,
+  MONAD_MAINNET_PRIVATE_KEY,
   ETHERSCAN_API_KEY,
 } = process.env;
 
@@ -23,23 +23,23 @@ const config = {
   },
   networks: {
     hardhat: {},
-    monadTestnet: {
-      url: MONAD_TESTNET_RPC_URL || "https://testnet-rpc.monad.xyz",
-      accounts: MONAD_TESTNET_PRIVATE_KEY ? [MONAD_TESTNET_PRIVATE_KEY] : [],
-      chainId: 10143,
+    monadMainnet: {
+      url: MONAD_MAINNET_RPC_URL || "https://rpc.monad.xyz",
+      accounts: MONAD_MAINNET_PRIVATE_KEY ? [MONAD_MAINNET_PRIVATE_KEY] : [],
+      chainId: 143,
     },
   },
   etherscan: {
     apiKey: {
-      monadTestnet: ETHERSCAN_API_KEY || "dummy",
+      monadMainnet: ETHERSCAN_API_KEY || "dummy",
     },
     customChains: [
       {
-        network: "monadTestnet",
-        chainId: 10143,
+        network: "monadMainnet",
+        chainId: 143,
         urls: {
-          apiURL: "https://api.etherscan.io/v2/api?chainid=10143",
-          browserURL: "https://testnet.monadscan.com",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=143",
+          browserURL: "https://monadscan.com",
         },
       },
     ],

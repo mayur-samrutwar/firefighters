@@ -19,9 +19,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const rpcUrl = process.env.MONAD_TESTNET_RPC_URL?.trim();
+  const rpcUrl = process.env.MONAD_MAINNET_RPC_URL?.trim();
   const treasuryAddress = process.env.GAME_TREASURY_ADDRESS?.trim();
-  const privateKey = process.env.MONAD_TESTNET_PRIVATE_KEY;
+  const privateKey = process.env.MONAD_MAINNET_PRIVATE_KEY;
   if (!rpcUrl || !treasuryAddress || !privateKey) {
     return NextResponse.json(
       { error: "Treasury or RPC not configured" },

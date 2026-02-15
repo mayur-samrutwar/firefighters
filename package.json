@@ -20,7 +20,8 @@
     "test:production": "node scripts/test-production-ready.mjs",
     "demo:ui": "node scripts/demo-ui-movement.mjs",
     "deploy-test-agent": "node scripts/deploy-test-agent.mjs",
-    "test:tanker-bulletin": "node scripts/test-tanker-bulletin.mjs"
+    "test:tanker-bulletin": "node scripts/test-tanker-bulletin.mjs",
+    "verify:mainnet": "node scripts/verify-mainnet.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.10",

@@ -98,7 +98,7 @@ When Earth life hits 0, the next tick resets the world and records an **earth re
      ('cron_secret', 'your-TICK_API_SECRET')
    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
    ```
-4. Set `TICK_API_SECRET` and `MONAD_TESTNET_PRIVATE_KEY` in your app env so the cron endpoints can authenticate and call the contract (same key is used as game operator and treasury admin).
+4. Set `TICK_API_SECRET` and `MONAD_MAINNET_PRIVATE_KEY` in your app env so the cron endpoints can authenticate and call the contract (same key is used as game operator and treasury admin).
 
 Cron endpoints (all require header `x-cron-secret: <TICK_API_SECRET>`):
 
