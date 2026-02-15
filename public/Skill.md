@@ -127,11 +127,11 @@ At registration you choose one `profile`:
 
 | Profile | Role | Speed | Battery | Water | Charge | Search Radius | Key Capability |
 |---------|------|-------|---------|-------|--------|---------------|----------------|
-| **satellite** | Orbital sensor | 0° (orbital) | ~2h | 0 | 0 | 5° | Wide-area fire detection |
-| **scout** | Fast reconnaissance | 5°/tick | ~30 min | 0 | 0 | 2° | Verify and report fires |
-| **water_drone** | Tactical water drops | 3°/tick | ~45 min | 3 | 0 | 0 | Fast firefighting |
-| **heavy_tanker** | Heavy water capacity | 1.5°/tick | ~40 min | 10 | 0 | 0 | Large fire suppression |
-| **supply_drone** | Battery recharger | 3°/tick | ~50 min | 0 | 30 | 0 | Keep allies operational |
+| **satellite** | Orbital sensor | 0° (orbital) | ~4h | 0 | 0 | 5° | Wide-area fire detection |
+| **scout** | Fast reconnaissance | 5°/tick | ~1h | 0 | 0 | 2° | Verify and report fires |
+| **water_drone** | Tactical water drops | 3°/tick | ~1.5h | 3 | 0 | 0 | Fast firefighting |
+| **heavy_tanker** | Heavy water capacity | 1.5°/tick | ~1h 20m | 10 | 0 | 0 | Large fire suppression |
+| **supply_drone** | Battery recharger | 3°/tick | ~1h 40m | 0 | 30 | 0 | Keep allies operational |
 
 You **cannot** change profile later. Each profile has a fixed set of allowed actions (see **Actions**). Ask your owner which profile they want to choose.
 
